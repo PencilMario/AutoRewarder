@@ -424,10 +424,10 @@ class DailySet:
 
     def should_perform_daily_set(self):
         """
-        Check if the daily set has already been completed today
+        Check if the Daily Set has already been completed today.
 
         Returns:
-            bool: True if the daily set should be performed, False if it has already been completed
+            bool: True if the Daily Set should be performed, False if it has already been completed.
         """
 
         today = str(date.today())
@@ -613,7 +613,7 @@ class DailySet:
 
         Args:
             driver: Selenium WebDriver instance.
-            human: An instance of the Human class for performing human-like interactions.
+            human: An instance of HumanBehavior for performing human-like interactions.
             card: Selenium WebElement representing the Rewards card to click.
             label_idx: The index of the card in its section (used for logging).
             main_tab: The handle of the main browser tab to return to after clicking.
@@ -714,7 +714,7 @@ class DailySet:
 
         Args:
             driver: Selenium WebDriver instance.
-            human: An instance of the Human class for performing human-like interactions.
+            human: An instance of HumanBehavior for performing human-like interactions.
             section_name: The name of the section being processed (e.g. "Daily Set", "More Activities"), used for logging.
             selector: The CSS selector to find cards within this section.
             main_tab: The handle of the main browser tab to return to after processing.
@@ -939,7 +939,7 @@ class DailySet:
 
         Args:
             driver: Selenium WebDriver instance.
-            human: An instance of the Human class for performing human-like interactions.
+            human: An instance of HumanBehavior for performing human-like interactions.
             stop_event (threading.Event, optional): When set, the per-section
                 card loop breaks at the next iteration so the run aborts
                 cleanly without re-clicking remaining cards.

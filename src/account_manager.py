@@ -174,7 +174,8 @@ class AccountManager:
         Set the current account id in global settings.
 
         Raises:
-            ValueError: If the account_id is not found in the index."""
+            ValueError: If the account_id is not found in the index.
+        """
         if account_id is not None and not self.exists(account_id):
             raise ValueError(f"Account not found: {account_id}")
         self._global.set_current_account_id(account_id)

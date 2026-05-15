@@ -45,9 +45,10 @@ def _iso_now():
 
 def console_log(message):
     """
-    Print to stdout AND append to the rotating background log file.
+    Print to stdout and append to the rotating background log file.
+
     Args:
-        message: the message to log (string)
+        message (str): The message to log.
     """
     line = f"[{_iso_now()}] {message}"
     print(line)
