@@ -55,6 +55,13 @@ def _write_json(path, data):
     tolerates transient Windows locks (Defender, indexer, another instance
     briefly holding the file). A stale `.tmp` from a previous crashed write
     is removed before the write so its file attributes don't block us.
+
+    Args:
+        path: target file path to write
+        data: JSON-serializable data to write
+
+    Raises:
+        OSError: If the file cannot be written.
     """
     import time as _time
 
@@ -167,6 +174,10 @@ class AccountMetaManager:
     """
 
     def __init__(self, account_id):
+        """
+        Args:
+            account_id: the ID of the account this manager handles (string)
+        """
         self.account_id = account_id
         self.path = account_meta_path(account_id)
 
@@ -221,7 +232,13 @@ class AccountMetaManager:
         return merged
 
     def set_schedule(self, sched):
-        """Persist this account's schedule. `sched` should be a dict."""
+        """
+        Persist this account's schedule. `sched` should be a dict.
+
+        Args:
+            sched: dict with keys matching default_account_schedule, but can omit any keys to keep them
+                at their current values. Example: {"enabled": True, "queries_per_hour": 15}
+        """
         meta = self.get_meta()
         meta["schedule"] = sched
         self.save_meta(meta)

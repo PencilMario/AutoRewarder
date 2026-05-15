@@ -444,9 +444,7 @@ class DailySet:
             return True
 
     def mark_as_completed(self):
-        """
-        Mark the daily set as completed for today.
-        """
+        """Mark the daily set as completed for today."""
         today = str(date.today())
 
         data = {}
@@ -488,6 +486,13 @@ class DailySet:
 
         Failures (stale element, JS error) are treated as "not completed" so the
         bot still attempts the click rather than silently skipping a card.
+
+        Args:
+            driver: Selenium WebDriver instance.
+            card: Selenium WebElement representing the Rewards card to check.
+
+        Returns:
+            bool: True if the card is detected as completed, False otherwise.
         """
         try:
             return bool(driver.execute_script(_CARD_COMPLETED_JS, card))
@@ -499,6 +504,13 @@ class DailySet:
         Return True if a card is locked / not yet available (e.g. tomorrow's
         Daily Set entry). Locked cards must not be counted as 'to-do' nor
         clicked — they'd just open a useless tab.
+
+        Args:
+            driver: Selenium WebDriver instance.
+            card: Selenium WebElement representing the Rewards card to check.
+
+        Returns:
+            bool: True if the card is detected as locked, False otherwise.
         """
         try:
             return bool(driver.execute_script(_CARD_LOCKED_JS, card))
@@ -513,6 +525,15 @@ class DailySet:
         Xbox offers, redemption nudges). Daily Set cards always carry a points
         value, so the no-points check is gated on section to avoid false
         positives there.
+
+        Args:
+            driver: Selenium WebDriver instance.
+            card: Selenium WebElement representing the Rewards card to check.
+            section_name: The name of the card's section (e.g. "Daily Set", "More Activities"),
+                used to apply section-specific heuristics. Optional.
+
+        Returns:
+            bool: True if the card is detected as an excluded type, False otherwise.
         """
         try:
             if bool(driver.execute_script(_CARD_EXCLUDED_JS, card)):
@@ -530,7 +551,16 @@ class DailySet:
         return False
 
     def _get_card_title(self, driver, card):
-        """Best-effort short label for a card (used in the run log)."""
+        """
+        Best-effort short label for a card (used in the run log).
+
+        Args:
+            driver: Selenium WebDriver instance.
+            card: Selenium WebElement representing the Rewards card to extract the title from.
+
+        Returns:
+            str: A short title for the card, or an empty string if it cannot be determined.
+        """
         try:
             t = driver.execute_script(_CARD_TITLE_JS, card)
         except Exception:
@@ -543,6 +573,13 @@ class DailySet:
 
         Rewards is a dynamic SPA; containers can temporarily become 0x0 during
         re-renders. Prefer the inner link element when available.
+
+        Args:
+            driver: Selenium WebDriver instance.
+            card: Selenium WebElement representing the Rewards card to pick a click target from.
+
+        Returns:
+            Selenium WebElement: The element that should be clicked to activate the card's action.
         """
         try:
             candidates = card.find_elements(By.CSS_SELECTOR, CLICKABLE_SELECTOR)
@@ -573,6 +610,17 @@ class DailySet:
         considered a side-effect of the user stopping the run and not logged
         as a warning (the driver was force-quit, every Selenium call from
         here on will throw HTTPConnectionPool errors).
+
+        Args:
+            driver: Selenium WebDriver instance.
+            human: An instance of the Human class for performing human-like interactions.
+            card: Selenium WebElement representing the Rewards card to click.
+            label_idx: The index of the card in its section (used for logging).
+            main_tab: The handle of the main browser tab to return to after clicking.
+            stop_event: Optional threading.Event that signals if the run has been stopped by the user.
+
+        Returns:
+            bool: True if the card was clicked and handled successfully, False if an exception occurred.
         """
         click_target = self._pick_click_target(driver, card)
 
@@ -663,6 +711,24 @@ class DailySet:
         Process one card section (Daily Set or More Activities). Returns a
         dict {already, newly, final, total, attempted} so the caller can
         aggregate stats across sections and make the mark-as-done decision.
+
+        Args:
+            driver: Selenium WebDriver instance.
+            human: An instance of the Human class for performing human-like interactions.
+            section_name: The name of the section being processed (e.g. "Daily Set", "More Activities"), used for logging.
+            selector: The CSS selector to find cards within this section.
+            main_tab: The handle of the main browser tab to return to after processing.
+            stop_event: Optional threading.Event that signals if the run has been stopped by the user.
+
+        Returns:
+            dict: A dictionary containing counts of card statuses:
+                {
+                    "already": int,  # Number of cards already completed before processing.
+                    "newly": int,    # Number of cards newly completed during processing.
+                    "final": int,    # Total number of cards completed after processing.
+                    "total": int,    # Total number of actionable cards (excluding locked/excluded).
+                    "attempted": int # Number of cards that the bot attempted to click.
+                }
         """
         all_cards = driver.find_elements(By.CSS_SELECTOR, selector)
         if not all_cards:
@@ -872,6 +938,8 @@ class DailySet:
         card's status is re-checked after the run to validate progress.
 
         Args:
+            driver: Selenium WebDriver instance.
+            human: An instance of the Human class for performing human-like interactions.
             stop_event (threading.Event, optional): When set, the per-section
                 card loop breaks at the next iteration so the run aborts
                 cleanly without re-clicking remaining cards.

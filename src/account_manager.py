@@ -40,6 +40,11 @@ class AccountManager:
     """
 
     def __init__(self, global_settings, logger=None):
+        """
+        Args:
+            global_settings: an instance of GlobalSettingsManager for current account tracking.
+            logger: optional callable for logging messages.
+        """
         self._global = global_settings
         self._logger = logger
         os.makedirs(ACCOUNTS_DIR, exist_ok=True)
@@ -119,7 +124,9 @@ class AccountManager:
         return any(acc.get("id") == account_id for acc in self._read_index())
 
     def _is_first_setup_done(self, account_id):
-        """Check whether the account meta marks first setup done."""
+        """
+        Check whether the account meta marks first setup done.
+        """
         meta_path = account_meta_path(account_id)
         if not os.path.exists(meta_path):
             return False
@@ -133,7 +140,15 @@ class AccountManager:
     # ---- Mutations ----------------------------------------------------
 
     def create(self, label):
-        """Create a new account directory and index entry. Does NOT select it."""
+        """
+        Create a new account directory and index entry. Does NOT select it.
+
+        Args:
+            label (str): The label for the new account.
+
+        Returns:
+            dict: A dictionary containing the new account's ID and label.
+        """
         label = (label or "").strip() or "Account"
         aid = _new_account_id()
         # Vanishingly unlikely collision, but defensive.
@@ -155,13 +170,25 @@ class AccountManager:
         return {"id": aid, "label": label, "first_setup_done": False}
 
     def select(self, account_id):
-        """Set the current account id in global settings."""
+        """
+        Set the current account id in global settings.
+
+        Raises:
+            ValueError: If the account_id is not found in the index."""
         if account_id is not None and not self.exists(account_id):
             raise ValueError(f"Account not found: {account_id}")
         self._global.set_current_account_id(account_id)
 
     def rename(self, account_id, new_label):
-        """Rename an account label in the index."""
+        """
+        Rename an account label in the index.
+
+        Args:
+            account_id (str): The ID of the account to rename.
+            new_label (str): The new label for the account.
+        Raises:
+            ValueError: If the account is not found or the new label is empty.
+        """
         new_label = (new_label or "").strip()
         if not new_label:
             raise ValueError("Label must not be empty")
@@ -178,8 +205,11 @@ class AccountManager:
         self._log(f"Renamed account {account_id} to '{new_label}'")
 
     def delete(self, account_id):
-        """Remove the account directory and index entry. Returns the next account_id
-        that should become current (first remaining) or None."""
+        """
+        Remove the account directory and index entry.
+
+        Returns the next account_id that should become current (first remaining) or None.
+        """
         if not self.exists(account_id):
             raise ValueError(f"Account not found: {account_id}")
 
