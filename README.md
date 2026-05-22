@@ -50,7 +50,7 @@ Clone this repo, create virtual environment, and run `python AutoRewarder.py`.
 
 | Perform Searches | App Demo |
 | :---: | :---: |
-|<img src="assets/screenshots/perform_demo.gif">|<img src="assets/screenshots/main_demo.gif">|
+|<img src="assets/screenshots/perform_demo.gif">|<img src="assets/screenshots/main_window_demo_3.3.gif">|
 
 |Daily Sets| Tab Switching |
 | :---: | :---: |
@@ -60,7 +60,7 @@ Clone this repo, create virtual environment, and run `python AutoRewarder.py`.
 
 | Main Window | Settings & History |
 | :---: | :---: |
-| <img src="assets/screenshots/main_2.png"> | <img src="assets/screenshots/history_window.png"> |
+| <img src="assets/screenshots/main_window_3.3.png"> | <img src="assets/screenshots/history_window.png"> |
 | <img src="assets/screenshots/main_1.png"> | <img src="assets/screenshots/settings.jpg"> |
 
 ---
