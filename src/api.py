@@ -7,6 +7,7 @@ import json
 import math
 import random
 import platform
+import subprocess
 import threading
 import webbrowser
 
@@ -34,6 +35,16 @@ from .accounts import (
 from .emulator import DriverManager, HumanBehavior, edge_policy
 from .search import HistoryManager, SearchEngine
 from .dailytasks import DailySet
+
+# Hour the daily scheduled run fires at (24h "HH:MM"). Edit here to change.
+# Stored OS-side via Task Scheduler (Windows) / systemd user timer (Linux),
+# both of which fire at this wall-clock time regardless of login state.
+# systemd's Persistent=true catches up if the machine was off at the trigger.
+AUTOSTART_TIME = "09:00"
+
+# Identifiers used for the OS-level scheduled task / systemd unit.
+_AUTOSTART_TASK_NAME = "AutoRewarder"
+_SYSTEMD_UNIT_NAME = "autorewarder"
 
 
 class AutoRewarderAPI:
@@ -397,117 +408,225 @@ class AutoRewarderAPI:
         entry = os.path.join(BASE_DIR, "AutoRewarder.py")
         return f'"{sys.executable}" "{entry}" --headless'
 
-    def _linux_autostart_path(self):
-        """Return the path to the Linux .desktop autostart entry."""
+    # ------------------------------------------------------------------
+    # Autostart — daily scheduled task (Windows Task Scheduler / systemd
+    # user timer). Replaces the previous "fire on login" model so a daily
+    # run still happens even when the machine stays logged in for days.
+    # ------------------------------------------------------------------
+
+    def _systemd_user_dir(self):
+        return os.path.join(os.path.expanduser("~"), ".config", "systemd", "user")
+
+    def _legacy_linux_autostart_path(self):
+        """Old .desktop autostart path — kept only for migration cleanup."""
         return os.path.join(
             os.path.expanduser("~"), ".config", "autostart", "AutoRewarder.desktop"
         )
 
-    def _set_autostart_linux(self, enable):
+    def _cleanup_legacy_autostart(self):
         """
-        Create or remove the Linux .desktop autostart entry.
+        Remove pre-daily-scheduler autostart entries (HKCU Run on Windows,
+        ~/.config/autostart/*.desktop on Linux). Idempotent — safe to call
+        whenever we touch the new scheduler so users transitioning from an
+        older AutoRewarder don't end up with both fires.
+        """
+        system = platform.system()
+        if system == "Windows":
+            try:
+                import winreg
 
-        Args:
-            enable (bool): True to enable autostart, False to disable.
+                run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_SET_VALUE
+                ) as key:
+                    try:
+                        winreg.DeleteValue(key, _AUTOSTART_TASK_NAME)
+                        self.log("Removed legacy HKCU Run autostart entry")
+                    except FileNotFoundError:
+                        pass
+            except Exception:
+                pass
+        elif system == "Linux":
+            old_desktop = self._legacy_linux_autostart_path()
+            if os.path.exists(old_desktop):
+                try:
+                    os.remove(old_desktop)
+                    self.log("Removed legacy .desktop autostart entry")
+                except OSError:
+                    pass
 
-        Returns:
-            bool: True if the operation was successful, False otherwise.
+    def _set_autostart_windows(self, enable):
+        """
+        Register or unregister a daily Task Scheduler entry that fires
+        AUTOSTART_TIME every day. /SC DAILY /ST HH:MM /F means: daily, at
+        the given start time, force overwrite if the task already exists.
         """
         try:
-            desktop_path = self._linux_autostart_path()
             if enable:
-                os.makedirs(os.path.dirname(desktop_path), exist_ok=True)
                 cmd = self._autostart_command()
-                desktop_file = (
-                    "[Desktop Entry]\n"
-                    "Type=Application\n"
-                    "Name=AutoRewarder\n"
-                    f"Exec={cmd}\n"
-                    "Terminal=false\n"
-                    "X-GNOME-Autostart-enabled=true\n"
-                )
-                with open(desktop_path, "w", encoding="utf-8") as fh:
-                    fh.write(desktop_file)
-                self.log("Autostart enabled (.desktop)")
+                args = [
+                    "schtasks",
+                    "/Create",
+                    "/TN",
+                    _AUTOSTART_TASK_NAME,
+                    "/TR",
+                    cmd,
+                    "/SC",
+                    "DAILY",
+                    "/ST",
+                    AUTOSTART_TIME,
+                    "/F",
+                ]
+                result = subprocess.run(args, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self.log(
+                        f"[ERROR] schtasks create failed: "
+                        f"{(result.stderr or result.stdout).strip()}"
+                    )
+                    return False
+                self.log(f"Autostart enabled (daily task at {AUTOSTART_TIME})")
             else:
-                if os.path.exists(desktop_path):
-                    os.remove(desktop_path)
-                    self.log("Autostart disabled (.desktop)")
+                args = [
+                    "schtasks",
+                    "/Delete",
+                    "/TN",
+                    _AUTOSTART_TASK_NAME,
+                    "/F",
+                ]
+                result = subprocess.run(args, capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.log("Autostart disabled (scheduled task removed)")
                 else:
-                    self.log("Autostart entry not found; nothing to remove")
+                    # Task may simply not exist — log only at info level.
+                    self.log("Scheduled task not found; nothing to remove")
             return True
+        except FileNotFoundError:
+            self.log("[ERROR] schtasks not found — Task Scheduler unavailable.")
+            return False
         except Exception as e:
-            self.log(f"[ERROR] Failed to update Linux autostart: {e}")
+            self.log(f"[ERROR] Failed to update Windows scheduled task: {e}")
+            return False
+
+    def _set_autostart_linux(self, enable):
+        """
+        Register or unregister a systemd user timer + service that fires
+        AUTOSTART_TIME every day. Persistent=true ensures missed triggers
+        (machine off / suspended at the scheduled time) catch up on the
+        next user-bus availability.
+        """
+        try:
+            base = self._systemd_user_dir()
+            service_path = os.path.join(base, f"{_SYSTEMD_UNIT_NAME}.service")
+            timer_path = os.path.join(base, f"{_SYSTEMD_UNIT_NAME}.timer")
+            timer_unit = f"{_SYSTEMD_UNIT_NAME}.timer"
+
+            if enable:
+                os.makedirs(base, exist_ok=True)
+                cmd = self._autostart_command()
+                service_file = (
+                    "[Unit]\n"
+                    "Description=AutoRewarder daily run\n\n"
+                    "[Service]\n"
+                    "Type=oneshot\n"
+                    f"ExecStart={cmd}\n"
+                )
+                timer_file = (
+                    "[Unit]\n"
+                    "Description=Run AutoRewarder daily\n\n"
+                    "[Timer]\n"
+                    f"OnCalendar=*-*-* {AUTOSTART_TIME}:00\n"
+                    "Persistent=true\n"
+                    f"Unit={_SYSTEMD_UNIT_NAME}.service\n\n"
+                    "[Install]\n"
+                    "WantedBy=timers.target\n"
+                )
+                with open(service_path, "w", encoding="utf-8") as fh:
+                    fh.write(service_file)
+                with open(timer_path, "w", encoding="utf-8") as fh:
+                    fh.write(timer_file)
+
+                subprocess.run(
+                    ["systemctl", "--user", "daemon-reload"],
+                    capture_output=True,
+                )
+                result = subprocess.run(
+                    ["systemctl", "--user", "enable", "--now", timer_unit],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    self.log(
+                        f"[ERROR] systemctl enable failed: "
+                        f"{(result.stderr or result.stdout).strip()}"
+                    )
+                    return False
+                self.log(f"Autostart enabled (systemd timer at {AUTOSTART_TIME})")
+            else:
+                subprocess.run(
+                    ["systemctl", "--user", "disable", "--now", timer_unit],
+                    capture_output=True,
+                )
+                for path in (service_path, timer_path):
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                subprocess.run(
+                    ["systemctl", "--user", "daemon-reload"],
+                    capture_output=True,
+                )
+                self.log("Autostart disabled (systemd timer removed)")
+            return True
+        except FileNotFoundError:
+            self.log("[ERROR] systemctl not found — systemd unavailable.")
+            return False
+        except Exception as e:
+            self.log(f"[ERROR] Failed to update systemd user timer: {e}")
             return False
 
     def _set_autostart_registry(self, enable):
         """
-        Platform-agnostic entry point. Windows → HKCU Run, Linux → .desktop.
-
-        Args:
-            enable (bool): True to enable autostart, False to disable.
-
-        Returns:
-            bool: True if the operation was successful, False otherwise.
+        Platform-agnostic entry point — kept under its historical name so
+        existing callers don't need to change. Windows → schtasks daily
+        task. Linux → systemd --user timer. Either path also cleans up
+        the previous fire-on-login mechanism on transition.
         """
-        try:
-            system_name = platform.system()
-            if system_name == "Linux":
-                return self._set_autostart_linux(enable)
-            if system_name != "Windows":
-                self.log("Autostart is only supported on Windows and Linux.")
-                return False
-
-            try:
-                import winreg
-            except Exception:
-                self.log(
-                    "[WARNING] winreg module not available; cannot modify registry."
-                )
-                return False
-
-            run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_SET_VALUE
-            ) as key:
-                name = "AutoRewarder"
-                if enable:
-                    winreg.SetValueEx(
-                        key, name, 0, winreg.REG_SZ, self._autostart_command()
-                    )
-                    self.log("Autostart enabled (HKCU Run)")
-                else:
-                    try:
-                        winreg.DeleteValue(key, name)
-                        self.log("Autostart disabled (HKCU Run)")
-                    except FileNotFoundError:
-                        self.log("Autostart entry not found; nothing to remove")
-            return True
-        except Exception as e:
-            self.log(f"[ERROR] Failed to update autostart registry: {e}")
+        system_name = platform.system()
+        if system_name not in ("Windows", "Linux"):
+            self.log("Autostart is only supported on Windows and Linux.")
             return False
 
+        # Always migrate legacy entries away (whether enabling or disabling)
+        # so users never end up with both a Run-key entry AND a scheduled task.
+        self._cleanup_legacy_autostart()
+
+        if system_name == "Windows":
+            return self._set_autostart_windows(enable)
+        return self._set_autostart_linux(enable)
+
     def is_autostart_enabled(self):
-        """Return True if an autostart entry exists for the current platform."""
+        """Return True if a daily scheduled task / timer exists for this user."""
         try:
             system_name = platform.system()
+            if system_name == "Windows":
+                result = subprocess.run(
+                    ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
+                    capture_output=True,
+                )
+                return result.returncode == 0
             if system_name == "Linux":
-                return os.path.exists(self._linux_autostart_path())
-            if system_name != "Windows":
-                return False
-            try:
-                import winreg
-            except Exception:
-                return False
-            run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            try:
-                with winreg.OpenKey(
-                    winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_READ
-                ) as key:
-                    val, _ = winreg.QueryValueEx(key, "AutoRewarder")
-                    return bool(val)
-            except OSError:
-                return False
+                result = subprocess.run(
+                    [
+                        "systemctl",
+                        "--user",
+                        "is-enabled",
+                        f"{_SYSTEMD_UNIT_NAME}.timer",
+                    ],
+                    capture_output=True,
+                )
+                return result.returncode == 0
+            return False
         except Exception:
             return False
 
