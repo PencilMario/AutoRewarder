@@ -56,4 +56,57 @@ if __name__ == "__main__":
         background_color="#0b0d12",
     )
     api.set_window(window)  # pass window reference to AutoRewarderAPI for logging
+
+    allow_exit = {"value": False}
+
+    def _install_tray(app_window):
+        try:
+            import pystray  # type: ignore
+            from PIL import Image
+        except Exception as e:
+            print(f"[WARNING] Tray disabled: {e}")
+            return None
+
+        def on_closing():
+            if allow_exit["value"]:
+                return True
+            try:
+                app_window.hide()
+            except Exception:
+                pass
+            return False
+
+        def on_show(icon, item):
+            try:
+                app_window.show()
+            except Exception:
+                pass
+
+        def on_exit(icon, item):
+            allow_exit["value"] = True
+            try:
+                icon.stop()
+            except Exception:
+                pass
+            try:
+                app_window.destroy()
+            except Exception:
+                pass
+
+        try:
+            with Image.open(os.path.join(ASSETS_DIR, "icon.ico")) as img:
+                image = img.copy()
+        except Exception:
+            image = Image.new("RGB", (64, 64), (0, 0, 0))
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Open", on_show, default=True),
+            pystray.MenuItem("Exit", on_exit),
+        )
+        icon = pystray.Icon("AutoRewarder", image, "AutoRewarder", menu)
+        app_window.events.closing += on_closing
+        icon.run_detached()
+        return icon
+
+    _tray_icon = _install_tray(window)
     webview.start(icon=os.path.join(ASSETS_DIR, "icon.ico"))
