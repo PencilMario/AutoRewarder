@@ -90,6 +90,11 @@ class GlobalSettingsManager:
             # OS-level autostart. When True, the app registers a Run entry
             # (Windows registry) or a .desktop autostart file (Linux).
             "autoStartUp": False,
+            # When True, clicking the window X hides the app to the system
+            # tray instead of quitting. Default True preserves the behavior
+            # introduced in v3.3; users who prefer the standard X = quit
+            # can flip it off in Settings. Read once at app startup.
+            "close_to_tray": True,
         }
 
         if APP_DIR and not os.path.exists(APP_DIR):
@@ -131,6 +136,12 @@ class GlobalSettingsManager:
         """Update the hide_browser flag in settings."""
         settings = self.get_settings()
         settings["hide_browser"] = bool(is_hide)
+        self.save_settings(settings)
+
+    def set_close_to_tray(self, value):
+        """Update the close_to_tray flag in settings."""
+        settings = self.get_settings()
+        settings["close_to_tray"] = bool(value)
         self.save_settings(settings)
 
     def get_current_account_id(self):

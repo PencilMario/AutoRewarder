@@ -57,6 +57,12 @@ if __name__ == "__main__":
     )
     api.set_window(window)  # pass window reference to AutoRewarderAPI for logging
 
+    # User-controlled: when False, the X button quits the app normally and
+    # we don't install the tray at all. Read once at startup — flipping the
+    # toggle in Settings takes effect on next launch (consistent with how
+    # hide_browser and autostart are persisted).
+    close_to_tray = api.get_close_to_tray()
+
     allow_exit = {"value": False}
 
     def _install_tray(app_window):
@@ -108,5 +114,5 @@ if __name__ == "__main__":
         icon.run_detached()
         return icon
 
-    _tray_icon = _install_tray(window)
+    _tray_icon = _install_tray(window) if close_to_tray else None
     webview.start(icon=os.path.join(ASSETS_DIR, "icon.ico"))

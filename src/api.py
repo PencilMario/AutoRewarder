@@ -288,6 +288,23 @@ class AutoRewarderAPI:
         self.global_settings.set_hide_browser(is_hide)
         self.log(f"Browser hidden mode: {'ON' if is_hide else 'OFF'}")
 
+    def get_close_to_tray(self):
+        """Return whether the window X-close should minimize to tray."""
+        return bool(self.global_settings.get_settings().get("close_to_tray", True))
+
+    def set_close_to_tray(self, value):
+        """
+        Persist the close-to-tray setting. Reads at app startup, so a
+        change only takes effect on the next launch.
+
+        Args:
+            value (bool): True to hide the window on X (close-to-tray),
+                False to quit the app entirely on X.
+        """
+        self.global_settings.set_close_to_tray(value)
+        state = "ON (X → tray)" if value else "OFF (X → quit)"
+        self.log(f"Close-to-tray: {state}. Restart to apply.")
+
     # ------------------------------------------------------------------
     # Exposed to JS: per-account schedule + startup
     # ------------------------------------------------------------------

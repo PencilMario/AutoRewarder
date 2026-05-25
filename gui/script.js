@@ -565,7 +565,8 @@ function open_settings_modal() {
   Promise.all([
     pywebview.api.get_all_schedules(),
     pywebview.api.get_launch_on_startup(),
-  ]).then(([schedules, startup]) => {
+    pywebview.api.get_close_to_tray(),
+  ]).then(([schedules, startup, closeToTray]) => {
     render_schedule_cards(schedules || []);
 
     // Start-with-Windows toggle — disable row on unsupported OS.
@@ -581,6 +582,12 @@ function open_settings_modal() {
       startupRow.classList.remove('row-disabled');
       startupToggle.disabled = false;
       startupHint.textContent = 'Launch AutoRewarder when you sign in.';
+    }
+
+    // Close-to-tray toggle — default to true if the API failed.
+    const trayToggle = document.getElementById('closeToTrayToggle');
+    if (trayToggle) {
+      trayToggle.checked = closeToTray !== false;
     }
   }).catch(err => {
     console.error('Failed to load settings:', err);
@@ -820,6 +827,7 @@ function make_form_field(labelText, inputType, className, value, opts) {
 
 async function save_settings() {
   const cards = Array.from(document.querySelectorAll('#schedule_accounts_list .schedule-card'));
+  const closeToTrayWanted = document.getElementById('closeToTrayToggle').checked;
   const startupWanted = document.getElementById('startupToggle').checked;
 
   // Validate + collect payloads per account.
@@ -888,9 +896,13 @@ async function save_settings() {
       startupCall = pywebview.api.set_launch_on_startup(startupWanted);
     }
 
-    const results = await Promise.all([...scheduleCalls, startupCall]);
-    const startupOk = results[results.length - 1];
-    const scheduleResults = results.slice(0, -1);
+    // Close-to-tray: persist unconditionally. The backend reads it at next
+    // app launch, so saving each time is cheap and avoids a stale state.
+    const closeToTrayCall = pywebview.api.set_close_to_tray(closeToTrayWanted);
+
+    const results = await Promise.all([...scheduleCalls, startupCall, closeToTrayCall]);
+    const startupOk = results[results.length - 2];
+    const scheduleResults = results.slice(0, -2);
     const failures = scheduleResults.filter(ok => !ok).length;
 
     if (failures > 0) {
