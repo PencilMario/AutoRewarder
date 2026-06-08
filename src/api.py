@@ -503,17 +503,18 @@ class AutoRewarderAPI:
 
     def _migrate_legacy_autostart(self):
         """
-        Cover three migration paths on every app launch:
+        Two cleanup paths on every app launch:
 
-        1. Legacy fire-on-login / single-task scheduler exists AND user
-           is not yet on the per-account model → full migration:
-           cleanup + register per-account tasks.
-        2. Legacy artifact exists AND user is already on per-account →
-           idempotent cleanup; per-account tasks left untouched.
-        3. User is on per-account model AND `autostart_schema_version`
-           is below current → re-register every task so format changes
-           (e.g. python.exe → pythonw.exe) take effect without the user
-           having to toggle anything.
+        1. Legacy artifact exists → idempotent cleanup. Never auto-
+           enables autostart, even if the user previously had it on
+           under the old model: their explicit intent is whatever
+           `autoStartUp` says today. If they want per-account
+           autostart back, they re-toggle Start-with-Windows in
+           Settings.
+        2. User is on per-account model (autoStartUp=True) AND
+           `autostart_schema_version` is below current → re-register
+           every task so format changes (e.g. python.exe → pythonw.exe)
+           take effect without the user having to toggle anything.
 
         Failures are logged but swallowed — a stale legacy entry is
         not worth crashing app startup.
@@ -531,32 +532,22 @@ class AutoRewarderAPI:
         if not legacy and not needs_resync:
             return
 
-        # Path 1: full migration from legacy to per-account.
-        if legacy and not autostartup:
+        if legacy:
+            self._safe_log("Cleaning up stale legacy autostart entries...")
+            try:
+                self._cleanup_legacy_autostart()
+            except Exception as e:
+                self._safe_log(f"[WARNING] Legacy cleanup failed: {e}")
+
+        if needs_resync:
             self._safe_log(
-                "Migrating legacy autostart entry to per-account daily tasks..."
+                f"Refreshing per-account scheduled tasks "
+                f"(schema v{self._AUTOSTART_SCHEMA_VERSION})..."
             )
             try:
-                self._set_autostart_registry(True)
+                self._sync_all_autostart()
             except Exception as e:
-                self._safe_log(f"[WARNING] Autostart migration failed: {e}")
-        else:
-            # Path 2: idempotent legacy cleanup.
-            if legacy:
-                self._safe_log("Cleaning up stale legacy autostart entries...")
-                try:
-                    self._cleanup_legacy_autostart()
-                except Exception as e:
-                    self._safe_log(f"[WARNING] Legacy cleanup failed: {e}")
-            # Path 3: re-register tasks under the current schema.
-            if needs_resync:
-                self._safe_log(
-                    f"Refreshing per-account scheduled tasks (schema v{self._AUTOSTART_SCHEMA_VERSION})..."
-                )
-                try:
-                    self._sync_all_autostart()
-                except Exception as e:
-                    self._safe_log(f"[WARNING] Autostart refresh failed: {e}")
+                self._safe_log(f"[WARNING] Autostart refresh failed: {e}")
 
         # Mark current schema applied so we don't re-run unnecessarily.
         try:
@@ -759,7 +750,9 @@ class AutoRewarderAPI:
                     f"{(result.stderr or result.stdout).strip()}"
                 )
                 return False
-            self.log(f"Daily task registered: '{label or account_id}' at {run_time}")
+            self.log(
+                f"Scheduled task registered: '{label or account_id}' at {run_time}"
+            )
             return True
         except FileNotFoundError:
             self.log("[ERROR] schtasks not found — Task Scheduler unavailable.")
@@ -833,7 +826,7 @@ class AutoRewarderAPI:
                     f"{(result.stderr or result.stdout).strip()}"
                 )
                 return False
-            self.log(f"Daily timer registered: '{desc_label}' at {run_time}")
+            self.log(f"Scheduled timer registered: '{desc_label}' at {run_time}")
             return True
         except FileNotFoundError:
             self.log("[ERROR] systemctl not found — systemd unavailable.")
@@ -961,7 +954,7 @@ class AutoRewarderAPI:
 
         # Enable path: register tasks for every account with schedule.enabled.
         self._sync_all_autostart()
-        self.log("Autostart enabled (per-account daily tasks registered)")
+        self.log("Autostart enabled (per-account scheduled tasks registered)")
         return True
 
     def is_autostart_enabled(self):

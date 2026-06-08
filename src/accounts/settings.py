@@ -87,8 +87,10 @@ class GlobalSettingsManager:
             "hide_browser": False,
             "current_account_id": None,
             "schema_version": SCHEMA_VERSION,
-            # OS-level autostart. When True, the app registers a Run entry
-            # (Windows registry) or a .desktop autostart file (Linux).
+            # OS-level autostart master switch. When True, the app syncs
+            # per-account daily scheduled tasks (Windows Task Scheduler /
+            # systemd user timers); each account's schedule.run_time
+            # decides when its own task fires.
             "autoStartUp": False,
             # When True, clicking the window X hides the app to the system
             # tray instead of quitting. Default True preserves the behavior

@@ -226,7 +226,13 @@ class DailySet:
                 self._log(f"Stop requested — halting {section_name} loop.")
                 break
 
-            current = driver.find_elements(By.CSS_SELECTOR, selector)
+            # Re-apply the same visibility filter used to build
+            # incomplete_indices. Without it, tomorrow's hidden cards
+            # (kept in the DOM under ng-hide) re-enter the list and
+            # shift the indices — we'd then click the wrong card or
+            # hit a 0x0 element.
+            current_all = driver.find_elements(By.CSS_SELECTOR, selector)
+            current = [c for c in current_all if self.cards.is_visible(c)]
             if idx >= len(current):
                 self._log(
                     f"[WARNING] {section_name} card #{idx + 1} disappeared between "
