@@ -1334,6 +1334,12 @@ input[type="number"]:focus {
 
 .form-field input[type="number"] { text-align: left; }
 
+/* Native time/date pickers render their indicator glyph (clock, calendar)
+   in a color derived from the form control's color-scheme. On dark
+   surfaces the default light-scheme icon disappears against the
+   background — opt into dark mode so the icon renders in white. */
+.form-field input[type="time"] { color-scheme: dark; }
+
 .form-field input:focus,
 .form-field select:focus {
   border-color: var(--accent);
