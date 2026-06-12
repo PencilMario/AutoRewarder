@@ -1,12 +1,14 @@
 """Core API for bridging the GUI and automation routines."""
 
 import os
+import re
 import sys
 import time
 import json
 import math
 import random
 import platform
+import subprocess
 import threading
 import webbrowser
 
@@ -25,15 +27,38 @@ from .config import (
     history_path,
     status_path,
 )
-from .driver_manager import DriverManager
-from .history import HistoryManager
-from .search_engine import SearchEngine
 from .utils import check_for_updates
-from .settings_manager import GlobalSettingsManager, AccountMetaManager
-from .account_manager import AccountManager
-from .daily_set import DailySet
-from .human_behavior import HumanBehavior
-from . import edge_policy
+from .accounts import (
+    AccountManager,
+    AccountMetaManager,
+    GlobalSettingsManager,
+)
+from .emulator import DriverManager, HumanBehavior, edge_policy
+from .search import HistoryManager, SearchEngine
+from .dailytasks import DailySet
+
+# Default wall-clock fire time (24h "HH:MM") if an account schedule does
+# not yet have a `run_time` value. Each account stores its own time in
+# meta.json; this constant is only the fallback default for fresh accounts.
+AUTOSTART_TIME = "09:00"
+
+# Naming prefix for the OS-level scheduled task / systemd unit. Each
+# account gets its own task: AutoRewarder.<account_id> on Windows,
+# autorewarder-<account_id>.{service,timer} on Linux. The unsuffixed
+# names (without account_id) are reserved as legacy markers from the
+# previous single-task design and only cleaned up, never created.
+_AUTOSTART_TASK_NAME = "AutoRewarder"
+_SYSTEMD_UNIT_NAME = "autorewarder"
+
+# HH:MM validator — accepts 00:00..23:59.
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _normalize_run_time(value):
+    """Return a valid HH:MM string, falling back to AUTOSTART_TIME."""
+    if isinstance(value, str) and _TIME_RE.match(value.strip()):
+        return value.strip()
+    return AUTOSTART_TIME
 
 
 class AutoRewarderAPI:
@@ -81,6 +106,12 @@ class AutoRewarderAPI:
         # One-shot migration: lift any pre-existing global schedule (v1 feature)
         # into the per-account meta.json it referenced.
         self._migrate_legacy_global_schedule()
+
+        # One-shot migration: lift any pre-existing fire-on-login autostart
+        # (HKCU Run / .desktop) into the new daily scheduled task / systemd
+        # timer. Otherwise a previously-enabled autostart would keep opening
+        # a visible GUI at every login until the user manually toggles.
+        self._migrate_legacy_autostart()
 
         # Scheduled runs are driven by the OS autostart entry which launches
         # `AutoRewarder.py --headless` → `AutoRewarder_CLI.main()`. No in-app
@@ -257,6 +288,23 @@ class AutoRewarderAPI:
         self.global_settings.set_hide_browser(is_hide)
         self.log(f"Browser hidden mode: {'ON' if is_hide else 'OFF'}")
 
+    def get_close_to_tray(self):
+        """Return whether the window X-close should minimize to tray."""
+        return bool(self.global_settings.get_settings().get("close_to_tray", True))
+
+    def set_close_to_tray(self, value):
+        """
+        Persist the close-to-tray setting. Reads at app startup, so a
+        change only takes effect on the next launch.
+
+        Args:
+            value (bool): True to hide the window on X (close-to-tray),
+                False to quit the app entirely on X.
+        """
+        self.global_settings.set_close_to_tray(value)
+        state = "ON (X → tray)" if value else "OFF (X → quit)"
+        self.log(f"Close-to-tray: {state}. Restart to apply.")
+
     # ------------------------------------------------------------------
     # Exposed to JS: per-account schedule + startup
     # ------------------------------------------------------------------
@@ -311,8 +359,12 @@ class AutoRewarderAPI:
         """
         Persist the schedule for a specific account.
         `payload` accepts: enabled, advancedScheduling, runDuration (1..24),
-        queriesPerHour (1..99), queries_pc (0..130), queries_mobile (0..99).
-        Unknown keys are ignored.
+        queriesPerHour (1..99), queries_pc (0..130), queries_mobile (0..99),
+        run_time (HH:MM 24h). Unknown keys are ignored.
+
+        After persisting, if the global "Start with Windows/Linux" toggle
+        is on, the account's OS-level scheduled task is (re)created or
+        removed to match the new state.
 
         Args:
             account_id (str): The ID of the account to set the schedule for.
@@ -349,6 +401,7 @@ class AutoRewarderAPI:
             "queries_mobile": max(
                 0, min(99, int(_pick("queries_mobile", current["queries_mobile"])))
             ),
+            "run_time": _normalize_run_time(_pick("run_time", current.get("run_time"))),
             # Reset the daily-dedup marker so the edited schedule can still fire today.
             "last_triggered_date": None,
         }
@@ -359,12 +412,22 @@ class AutoRewarderAPI:
         if new["enabled"]:
             mode = "advanced" if new["advancedScheduling"] else "simple"
             self.log(
-                f"Schedule '{label}' ({mode}): PC={new['queries_pc']}, "
-                f"Mobile={new['queries_mobile']}, "
+                f"Schedule '{label}' ({mode}) @ {new['run_time']}: "
+                f"PC={new['queries_pc']}, Mobile={new['queries_mobile']}, "
                 f"{new['runDuration']}h @ {new['queriesPerHour']}/h"
             )
         else:
             self.log(f"Schedule '{label}' disabled.")
+
+        # Re-sync the OS-level scheduled task. _sync_account_autostart
+        # itself respects the global Start-with-Windows toggle and the
+        # new schedule.enabled value, so it correctly creates / updates
+        # / removes the task in any state.
+        try:
+            self._sync_account_autostart(account_id)
+        except Exception as e:
+            self.log(f"[WARNING] Failed to sync autostart for '{label}': {e}")
+
         return True
 
     def _migrate_legacy_global_schedule(self):
@@ -379,135 +442,650 @@ class AutoRewarderAPI:
             settings.pop("schedule", None)
             self.global_settings.save_settings(settings)
 
+    def _detect_legacy_autostart(self):
+        """
+        Return True if any pre-per-account autostart artifact exists on
+        this system. Used both by the migration path and by every
+        startup so stale legacy entries get cleaned up even when the
+        user has already moved to the per-account model.
+
+        Recognised sources:
+          * Fire-on-login: HKCU Run (Windows) / .desktop (Linux)
+          * Single-task daily scheduler: schtasks `AutoRewarder` /
+            systemd `autorewarder.timer` (v3.3 single-task design)
+        """
+        system = platform.system()
+        if system == "Windows":
+            try:
+                import winreg
+
+                run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_READ
+                ) as key:
+                    winreg.QueryValueEx(key, _AUTOSTART_TASK_NAME)
+                    return True
+            except Exception:
+                pass
+            try:
+                result = subprocess.run(
+                    ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
+                    capture_output=True,
+                )
+                if result.returncode == 0:
+                    return True
+            except Exception:
+                pass
+        elif system == "Linux":
+            try:
+                if os.path.exists(self._legacy_linux_autostart_path()):
+                    return True
+            except Exception:
+                pass
+            try:
+                timer_path = os.path.join(
+                    self._systemd_user_dir(),
+                    f"{_SYSTEMD_UNIT_NAME}.timer",
+                )
+                if os.path.exists(timer_path):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    # Bumped whenever the format of registered scheduled tasks changes in
+    # a way that requires re-creating existing tasks on disk:
+    #   * v1 switched dev-mode commands from python.exe to pythonw.exe
+    #     to avoid the console-window flash.
+    #   * v2 switched Windows registration from `schtasks /Create /SC DAILY
+    #     /ST HH:MM` (flag form) to `schtasks /Create /XML <file>` so the
+    #     resulting task carries StartWhenAvailable=true — without it,
+    #     Windows silently skips daily triggers that fired while the
+    #     machine was off, unlike systemd's Persistent=true on Linux.
+    # Stored in global_settings as `autostart_schema_version`. Users on
+    # autoStartUp=True with a lower version get all their tasks re-
+    # registered on next launch.
+    _AUTOSTART_SCHEMA_VERSION = 2
+
+    def _migrate_legacy_autostart(self):
+        """
+        Two cleanup paths on every app launch:
+
+        1. Legacy artifact exists → idempotent cleanup. Never auto-
+           enables autostart, even if the user previously had it on
+           under the old model: their explicit intent is whatever
+           `autoStartUp` says today. If they want per-account
+           autostart back, they re-toggle Start-with-Windows in
+           Settings.
+        2. User is on per-account model (autoStartUp=True) AND
+           `autostart_schema_version` is below current → re-register
+           every task so format changes (e.g. python.exe → pythonw.exe)
+           take effect without the user having to toggle anything.
+
+        Failures are logged but swallowed — a stale legacy entry is
+        not worth crashing app startup.
+        """
+        legacy = self._detect_legacy_autostart()
+        try:
+            settings = self.global_settings.get_settings()
+            autostartup = bool(settings.get("autoStartUp", False))
+            schema_v = int(settings.get("autostart_schema_version", 0))
+        except Exception:
+            return
+
+        needs_resync = autostartup and schema_v < self._AUTOSTART_SCHEMA_VERSION
+
+        if not legacy and not needs_resync:
+            return
+
+        if legacy:
+            self._safe_log("Cleaning up stale legacy autostart entries...")
+            try:
+                self._cleanup_legacy_autostart()
+            except Exception as e:
+                self._safe_log(f"[WARNING] Legacy cleanup failed: {e}")
+
+        if needs_resync:
+            self._safe_log(
+                f"Refreshing per-account scheduled tasks "
+                f"(schema v{self._AUTOSTART_SCHEMA_VERSION})..."
+            )
+            try:
+                self._sync_all_autostart()
+            except Exception as e:
+                self._safe_log(f"[WARNING] Autostart refresh failed: {e}")
+
+        # Mark current schema applied so we don't re-run unnecessarily.
+        try:
+            settings = self.global_settings.get_settings()
+            settings["autostart_schema_version"] = self._AUTOSTART_SCHEMA_VERSION
+            self.global_settings.save_settings(settings)
+        except Exception:
+            pass
+
     # ---- Autostart (OS-level) — ported from v3.1 main -----------------
 
-    def _autostart_command(self):
+    def _autostart_command(self, account_id):
         """
-        Command string registered for autostart.
+        Command string registered for an account's daily scheduled run.
+
+        Args:
+            account_id (str): the account this scheduled task targets.
+                Passed to the CLI as `--account <id>` so the headless run
+                only processes that account, regardless of which other
+                accounts are enabled.
 
         Returns:
             str: The command to execute for autostart, which varies based on
                 whether the app is frozen (packaged) or running in development mode.
         """
-        # Frozen build: call the bundled exe with --headless.
+        # Frozen build: call the bundled exe with --headless --account <id>.
+        # PyInstaller's `console=False` in AutoRewarder.spec means the exe
+        # itself has no console, so this fires silently.
         if getattr(sys, "frozen", False):
-            return f'"{sys.executable}" --headless'
-        # Dev: call python on the entry script with --headless so the dispatch
-        # in AutoRewarder.py forwards to AutoRewarder_CLI.main().
-        entry = os.path.join(BASE_DIR, "AutoRewarder.py")
-        return f'"{sys.executable}" "{entry}" --headless'
+            return f'"{sys.executable}" --headless --account {account_id}'
 
-    def _linux_autostart_path(self):
-        """Return the path to the Linux .desktop autostart entry."""
+        # Dev mode: prefer pythonw.exe on Windows. python.exe is the console
+        # variant, so when Task Scheduler fires it Windows allocates a
+        # console window — visible flash at every trigger. pythonw.exe is
+        # the same interpreter without that console. Falls back to whatever
+        # sys.executable is if pythonw isn't there (custom layout).
+        python_exe = sys.executable
+        if platform.system() == "Windows":
+            candidate = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+            if os.path.exists(candidate):
+                python_exe = candidate
+        entry = os.path.join(BASE_DIR, "AutoRewarder.py")
+        return f'"{python_exe}" "{entry}" --headless --account {account_id}'
+
+    # ---- Per-account OS-task naming -----------------------------------
+
+    def _windows_task_name(self, account_id):
+        """schtasks task name for a specific account."""
+        return f"{_AUTOSTART_TASK_NAME}.{account_id}"
+
+    def _systemd_unit_base(self, account_id):
+        """Base name for the systemd service + timer of a specific account."""
+        return f"{_SYSTEMD_UNIT_NAME}-{account_id}"
+
+    # ------------------------------------------------------------------
+    # Autostart — daily scheduled task (Windows Task Scheduler / systemd
+    # user timer). Replaces the previous "fire on login" model so a daily
+    # run still happens even when the machine stays logged in for days.
+    # ------------------------------------------------------------------
+
+    def _systemd_user_dir(self):
+        return os.path.join(os.path.expanduser("~"), ".config", "systemd", "user")
+
+    def _legacy_linux_autostart_path(self):
+        """Old .desktop autostart path — kept only for migration cleanup."""
         return os.path.join(
             os.path.expanduser("~"), ".config", "autostart", "AutoRewarder.desktop"
         )
 
-    def _set_autostart_linux(self, enable):
+    def _cleanup_legacy_autostart(self):
         """
-        Create or remove the Linux .desktop autostart entry.
+        Remove pre-per-account autostart entries:
+          * HKCU Run / .desktop (the original fire-on-login mechanism)
+          * Single-task `AutoRewarder` schtasks / `autorewarder.timer`
+            systemd unit (the v3.3 single-task daily scheduler)
 
-        Args:
-            enable (bool): True to enable autostart, False to disable.
-
-        Returns:
-            bool: True if the operation was successful, False otherwise.
+        Idempotent — safe to call on every startup. Outcomes are logged
+        so that a silent failure can be diagnosed instead of leaving a
+        stale task to fire alongside the new per-account ones.
         """
-        try:
-            desktop_path = self._linux_autostart_path()
-            if enable:
-                os.makedirs(os.path.dirname(desktop_path), exist_ok=True)
-                cmd = self._autostart_command()
-                desktop_file = (
-                    "[Desktop Entry]\n"
-                    "Type=Application\n"
-                    "Name=AutoRewarder\n"
-                    f"Exec={cmd}\n"
-                    "Terminal=false\n"
-                    "X-GNOME-Autostart-enabled=true\n"
+        system = platform.system()
+        if system == "Windows":
+            # HKCU Run value.
+            try:
+                import winreg
+
+                run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_SET_VALUE
+                ) as key:
+                    try:
+                        winreg.DeleteValue(key, _AUTOSTART_TASK_NAME)
+                        self.log("Removed legacy HKCU Run autostart entry")
+                    except FileNotFoundError:
+                        pass
+            except Exception:
+                pass
+            # Single-task daily scheduler from the v3.3 design.
+            # Only attempt delete if it actually exists, so failures are
+            # always meaningful (don't log "delete failed" for tasks
+            # that were never there).
+            try:
+                q = subprocess.run(
+                    ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
+                    capture_output=True,
+                    text=True,
                 )
-                with open(desktop_path, "w", encoding="utf-8") as fh:
-                    fh.write(desktop_file)
-                self.log("Autostart enabled (.desktop)")
-            else:
-                if os.path.exists(desktop_path):
-                    os.remove(desktop_path)
-                    self.log("Autostart disabled (.desktop)")
-                else:
-                    self.log("Autostart entry not found; nothing to remove")
+                if q.returncode == 0:
+                    d = subprocess.run(
+                        [
+                            "schtasks",
+                            "/Delete",
+                            "/TN",
+                            _AUTOSTART_TASK_NAME,
+                            "/F",
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if d.returncode == 0:
+                        self.log("Removed legacy single-task scheduler")
+                    else:
+                        msg = (d.stderr or d.stdout or "").strip()
+                        self.log(
+                            f"[WARNING] Could not delete legacy task "
+                            f"'{_AUTOSTART_TASK_NAME}': {msg}"
+                        )
+            except FileNotFoundError:
+                # schtasks not on PATH — nothing we can do.
+                pass
+            except Exception as e:
+                self.log(f"[WARNING] Legacy schtasks cleanup error: {e}")
+        elif system == "Linux":
+            old_desktop = self._legacy_linux_autostart_path()
+            if os.path.exists(old_desktop):
+                try:
+                    os.remove(old_desktop)
+                    self.log("Removed legacy .desktop autostart entry")
+                except OSError as e:
+                    self.log(f"[WARNING] Could not remove .desktop: {e}")
+            # Single-task systemd timer from the v3.3 design.
+            base = self._systemd_user_dir()
+            old_service = os.path.join(base, f"{_SYSTEMD_UNIT_NAME}.service")
+            old_timer = os.path.join(base, f"{_SYSTEMD_UNIT_NAME}.timer")
+            if os.path.exists(old_timer) or os.path.exists(old_service):
+                try:
+                    subprocess.run(
+                        [
+                            "systemctl",
+                            "--user",
+                            "disable",
+                            "--now",
+                            f"{_SYSTEMD_UNIT_NAME}.timer",
+                        ],
+                        capture_output=True,
+                    )
+                except Exception:
+                    pass
+                removed = False
+                for path in (old_service, old_timer):
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                            removed = True
+                        except OSError as e:
+                            self.log(f"[WARNING] Could not remove {path}: {e}")
+                if removed:
+                    self.log("Removed legacy single-task systemd timer")
+                try:
+                    subprocess.run(
+                        ["systemctl", "--user", "daemon-reload"],
+                        capture_output=True,
+                    )
+                except Exception:
+                    pass
+
+    # ---- Per-account OS-task management -------------------------------
+
+    def _autostart_exec_and_args(self, account_id):
+        """
+        Split the autostart command into (executable, arguments) for the
+        Task Scheduler XML Action element, which expects them separately.
+        Mirrors the same dev-vs-frozen logic as _autostart_command.
+        """
+        if getattr(sys, "frozen", False):
+            return sys.executable, f"--headless --account {account_id}"
+
+        python_exe = sys.executable
+        candidate = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if os.path.exists(candidate):
+            python_exe = candidate
+        entry = os.path.join(BASE_DIR, "AutoRewarder.py")
+        return python_exe, f'"{entry}" --headless --account {account_id}'
+
+    def _build_windows_task_xml(self, account_id, run_time, label):
+        """
+        Build a Task Scheduler 1.2 XML for a daily run.
+
+        Key setting: <StartWhenAvailable>true</StartWhenAvailable>. Without
+        it, Windows silently skips a trigger that fired while the machine
+        was off (unlike systemd's Persistent=true). With it, the task
+        runs as soon as possible after the missed time at the next boot —
+        matching the Linux behavior.
+
+        Also: <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+        so laptop users on battery still get their run.
+        """
+        executable, arguments = self._autostart_exec_and_args(account_id)
+
+        def esc(s):
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&apos;")
+            )
+
+        description = f"AutoRewarder daily run ({label})"
+        # Past anchor date — only the HH:MM portion of StartBoundary
+        # matters for DaysInterval=1 recurrence.
+        start_boundary = f"2025-01-01T{run_time}:00"
+
+        return (
+            '<?xml version="1.0" encoding="UTF-16"?>\n'
+            '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+            "  <RegistrationInfo>\n"
+            f"    <Description>{esc(description)}</Description>\n"
+            "  </RegistrationInfo>\n"
+            "  <Triggers>\n"
+            "    <CalendarTrigger>\n"
+            f"      <StartBoundary>{start_boundary}</StartBoundary>\n"
+            "      <Enabled>true</Enabled>\n"
+            "      <ScheduleByDay>\n"
+            "        <DaysInterval>1</DaysInterval>\n"
+            "      </ScheduleByDay>\n"
+            "    </CalendarTrigger>\n"
+            "  </Triggers>\n"
+            "  <Principals>\n"
+            '    <Principal id="Author">\n'
+            "      <LogonType>InteractiveToken</LogonType>\n"
+            "      <RunLevel>LeastPrivilege</RunLevel>\n"
+            "    </Principal>\n"
+            "  </Principals>\n"
+            "  <Settings>\n"
+            "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n"
+            "    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n"
+            "    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"
+            "    <AllowHardTerminate>true</AllowHardTerminate>\n"
+            "    <StartWhenAvailable>true</StartWhenAvailable>\n"
+            "    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n"
+            "    <AllowStartOnDemand>true</AllowStartOnDemand>\n"
+            "    <Enabled>true</Enabled>\n"
+            "    <Hidden>false</Hidden>\n"
+            "    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n"
+            "    <WakeToRun>false</WakeToRun>\n"
+            "    <ExecutionTimeLimit>PT72H</ExecutionTimeLimit>\n"
+            "    <Priority>7</Priority>\n"
+            "  </Settings>\n"
+            '  <Actions Context="Author">\n'
+            "    <Exec>\n"
+            f"      <Command>{esc(executable)}</Command>\n"
+            f"      <Arguments>{esc(arguments)}</Arguments>\n"
+            "    </Exec>\n"
+            "  </Actions>\n"
+            "</Task>\n"
+        )
+
+    def _register_windows_task(self, account_id, run_time, label=None):
+        """
+        Register a daily scheduled task via XML import.
+
+        Why XML instead of `schtasks /SC DAILY /ST HH:MM` flags: the
+        flag form doesn't expose StartWhenAvailable, so a trigger that
+        fires while the machine is off is silently skipped forever.
+        The XML form lets us flip StartWhenAvailable=true so a missed
+        trigger catches up at next boot — same behavior as systemd's
+        Persistent=true on the Linux side.
+        """
+        import tempfile
+
+        xml_body = self._build_windows_task_xml(
+            account_id, run_time, label or account_id
+        )
+
+        # schtasks /XML reads the task definition from disk; UTF-16 is
+        # the encoding Task Scheduler expects (the XML decl says so and
+        # schtasks refuses UTF-8 without a BOM on some Windows builds).
+        fd, xml_path = tempfile.mkstemp(suffix=".xml", prefix="autorewarder-task-")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(xml_body.encode("utf-16"))
+
+            result = subprocess.run(
+                [
+                    "schtasks",
+                    "/Create",
+                    "/TN",
+                    self._windows_task_name(account_id),
+                    "/XML",
+                    xml_path,
+                    "/F",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.log(
+                    f"[ERROR] schtasks create failed for {label or account_id}: "
+                    f"{(result.stderr or result.stdout).strip()}"
+                )
+                return False
+            self.log(
+                f"Scheduled task registered: '{label or account_id}' at {run_time}"
+            )
             return True
-        except Exception as e:
-            self.log(f"[ERROR] Failed to update Linux autostart: {e}")
+        except FileNotFoundError:
+            self.log("[ERROR] schtasks not found — Task Scheduler unavailable.")
             return False
+        except Exception as e:
+            self.log(f"[ERROR] Failed to register Windows task: {e}")
+            return False
+        finally:
+            try:
+                os.remove(xml_path)
+            except OSError:
+                pass
+
+    def _remove_windows_task(self, account_id):
+        """schtasks /Delete an account's daily task (idempotent)."""
+        try:
+            subprocess.run(
+                [
+                    "schtasks",
+                    "/Delete",
+                    "/TN",
+                    self._windows_task_name(account_id),
+                    "/F",
+                ],
+                capture_output=True,
+            )
+            return True
+        except Exception:
+            return False
+
+    def _register_systemd_unit(self, account_id, run_time, label=None):
+        """Write + enable a per-account systemd .service + .timer."""
+        try:
+            base = self._systemd_user_dir()
+            unit_base = self._systemd_unit_base(account_id)
+            service_path = os.path.join(base, f"{unit_base}.service")
+            timer_path = os.path.join(base, f"{unit_base}.timer")
+            timer_unit = f"{unit_base}.timer"
+
+            os.makedirs(base, exist_ok=True)
+            cmd = self._autostart_command(account_id)
+            desc_label = label or account_id
+            service_file = (
+                "[Unit]\n"
+                f"Description=AutoRewarder daily run ({desc_label})\n\n"
+                "[Service]\n"
+                "Type=oneshot\n"
+                f"ExecStart={cmd}\n"
+            )
+            timer_file = (
+                "[Unit]\n"
+                f"Description=Run AutoRewarder daily ({desc_label})\n\n"
+                "[Timer]\n"
+                f"OnCalendar=*-*-* {run_time}:00\n"
+                "Persistent=true\n"
+                f"Unit={unit_base}.service\n\n"
+                "[Install]\n"
+                "WantedBy=timers.target\n"
+            )
+            with open(service_path, "w", encoding="utf-8") as fh:
+                fh.write(service_file)
+            with open(timer_path, "w", encoding="utf-8") as fh:
+                fh.write(timer_file)
+
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"], capture_output=True
+            )
+            result = subprocess.run(
+                ["systemctl", "--user", "enable", "--now", timer_unit],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.log(
+                    f"[ERROR] systemctl enable failed for {desc_label}: "
+                    f"{(result.stderr or result.stdout).strip()}"
+                )
+                return False
+            self.log(f"Scheduled timer registered: '{desc_label}' at {run_time}")
+            return True
+        except FileNotFoundError:
+            self.log("[ERROR] systemctl not found — systemd unavailable.")
+            return False
+        except Exception as e:
+            self.log(f"[ERROR] Failed to register systemd timer: {e}")
+            return False
+
+    def _remove_systemd_unit(self, account_id):
+        """Disable + delete an account's systemd service + timer."""
+        try:
+            base = self._systemd_user_dir()
+            unit_base = self._systemd_unit_base(account_id)
+            service_path = os.path.join(base, f"{unit_base}.service")
+            timer_path = os.path.join(base, f"{unit_base}.timer")
+            timer_unit = f"{unit_base}.timer"
+
+            subprocess.run(
+                ["systemctl", "--user", "disable", "--now", timer_unit],
+                capture_output=True,
+            )
+            for path in (service_path, timer_path):
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"], capture_output=True
+            )
+            return True
+        except Exception:
+            return False
+
+    def _remove_account_autostart(self, account_id):
+        """Remove an account's OS-level scheduled task (platform-aware)."""
+        system = platform.system()
+        if system == "Windows":
+            return self._remove_windows_task(account_id)
+        if system == "Linux":
+            return self._remove_systemd_unit(account_id)
+        return False
+
+    def _sync_account_autostart(self, account_id):
+        """
+        Bring one account's OS-level scheduled task in sync with its
+        meta.json schedule. Called whenever set_schedule mutates an
+        account, or the global Start-with-Windows toggle is flipped on.
+
+        Semantics:
+          * Global toggle OFF → always remove (regardless of schedule.enabled)
+          * Account doesn't exist anymore → remove
+          * schedule.enabled = False → remove
+          * Otherwise → register at schedule.run_time
+        """
+        if not self.is_autostart_enabled():
+            self._remove_account_autostart(account_id)
+            return False
+
+        if not self.account_manager.exists(account_id):
+            self._remove_account_autostart(account_id)
+            return False
+
+        meta = AccountMetaManager(account_id)
+        sched = meta.get_schedule()
+        if not sched.get("enabled"):
+            self._remove_account_autostart(account_id)
+            return True
+
+        run_time = _normalize_run_time(sched.get("run_time"))
+        acc = self.account_manager.get(account_id)
+        label = acc["label"] if acc else account_id
+
+        system = platform.system()
+        if system == "Windows":
+            return self._register_windows_task(account_id, run_time, label)
+        if system == "Linux":
+            return self._register_systemd_unit(account_id, run_time, label)
+        self.log("Autostart is only supported on Windows and Linux.")
+        return False
+
+    def _sync_all_autostart(self):
+        """Iterate every account and re-sync its scheduled task."""
+        for acc in self.account_manager.list():
+            try:
+                self._sync_account_autostart(acc["id"])
+            except Exception as e:
+                self.log(f"[WARNING] Sync failed for {acc.get('label')}: {e}")
 
     def _set_autostart_registry(self, enable):
         """
-        Platform-agnostic entry point. Windows → HKCU Run, Linux → .desktop.
+        Global autostart master toggle. Persists the user's intent in
+        global settings (`autoStartUp`) and syncs every account's OS-level
+        scheduled task to match.
 
-        Args:
-            enable (bool): True to enable autostart, False to disable.
+          * enable=True  → autoStartUp=True; create a task for each
+                           account whose schedule.enabled=True at its
+                           own schedule.run_time.
+          * enable=False → autoStartUp=False; remove every per-account
+                           task that we might have registered.
 
-        Returns:
-            bool: True if the operation was successful, False otherwise.
+        Legacy entries (HKCU Run, .desktop, single-task daily scheduler)
+        are always cleaned up on either path.
         """
-        try:
-            system_name = platform.system()
-            if system_name == "Linux":
-                return self._set_autostart_linux(enable)
-            if system_name != "Windows":
-                self.log("Autostart is only supported on Windows and Linux.")
-                return False
-
-            try:
-                import winreg
-            except Exception:
-                self.log(
-                    "[WARNING] winreg module not available; cannot modify registry."
-                )
-                return False
-
-            run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_SET_VALUE
-            ) as key:
-                name = "AutoRewarder"
-                if enable:
-                    winreg.SetValueEx(
-                        key, name, 0, winreg.REG_SZ, self._autostart_command()
-                    )
-                    self.log("Autostart enabled (HKCU Run)")
-                else:
-                    try:
-                        winreg.DeleteValue(key, name)
-                        self.log("Autostart disabled (HKCU Run)")
-                    except FileNotFoundError:
-                        self.log("Autostart entry not found; nothing to remove")
-            return True
-        except Exception as e:
-            self.log(f"[ERROR] Failed to update autostart registry: {e}")
+        system_name = platform.system()
+        if system_name not in ("Windows", "Linux"):
+            self.log("Autostart is only supported on Windows and Linux.")
             return False
 
+        # Persist user intent FIRST so _sync_account_autostart reads the
+        # new value when it queries is_autostart_enabled().
+        settings = self.global_settings.get_settings()
+        settings["autoStartUp"] = bool(enable)
+        self.global_settings.save_settings(settings)
+
+        # Always clean up legacy single-task / fire-on-login entries.
+        self._cleanup_legacy_autostart()
+
+        if not enable:
+            # Remove every per-account task that might have been registered.
+            for acc in self.account_manager.list():
+                self._remove_account_autostart(acc["id"])
+            self.log("Autostart disabled (all per-account tasks removed)")
+            return True
+
+        # Enable path: register tasks for every account with schedule.enabled.
+        self._sync_all_autostart()
+        self.log("Autostart enabled (per-account scheduled tasks registered)")
+        return True
+
     def is_autostart_enabled(self):
-        """Return True if an autostart entry exists for the current platform."""
+        """Return True if the global 'Start with Windows/Linux' toggle is on.
+
+        Per-account OS tasks are derived from this AND each account's
+        schedule.enabled — the toggle here is the master switch.
+        """
         try:
-            system_name = platform.system()
-            if system_name == "Linux":
-                return os.path.exists(self._linux_autostart_path())
-            if system_name != "Windows":
-                return False
-            try:
-                import winreg
-            except Exception:
-                return False
-            run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            try:
-                with winreg.OpenKey(
-                    winreg.HKEY_CURRENT_USER, run_key, 0, winreg.KEY_READ
-                ) as key:
-                    val, _ = winreg.QueryValueEx(key, "AutoRewarder")
-                    return bool(val)
-            except OSError:
-                return False
+            return bool(self.global_settings.get_settings().get("autoStartUp", False))
         except Exception:
             return False
 
@@ -644,6 +1222,15 @@ class AutoRewarderAPI:
                 "[WARNING] Cannot delete the active account while the bot is running."
             )
             return False
+
+        # Tear down the account's OS-level scheduled task BEFORE deletion
+        # so the task name (which embeds the account_id) is still
+        # resolvable. Idempotent — no-op if no task was registered.
+        try:
+            self._remove_account_autostart(account_id)
+        except Exception as e:
+            self.log(f"[WARNING] Failed to remove scheduled task: {e}")
+
         try:
             self.account_manager.delete(account_id)
         except ValueError as e:

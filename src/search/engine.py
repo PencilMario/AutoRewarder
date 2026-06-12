@@ -7,8 +7,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.common.by import By
 
-from .utils import human_typing
-from .human_behavior import HumanBehavior
+from ..utils import human_typing
+from ..emulator import HumanBehavior
 
 
 class SearchEngine:

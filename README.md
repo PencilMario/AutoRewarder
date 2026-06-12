@@ -204,41 +204,48 @@ Output: `dist/AutoRewarder-Setup.exe`
 
 ```text
 AutoRewarder/
-├── GUI/
-│   ├── index.html                 # Main window UI
-│   ├── history.html               # History view UI
-│   ├── history.css                # History view styling
-│   ├── script.js                  # Frontend logic and bridge calls
-│   ├── settings.js                # Settings page logic and bridge calls
-│   ├── styles.css                 # App styling
-│   └── normalize.css              # CSS reset
+├── gui/
+│   ├── index.html        # Main window UI
+│   ├── history.html      # History view UI
+│   ├── history.css       # History view styling
+│   ├── script.js         # Frontend logic and bridge calls
+│   ├── settings.js       # Settings page logic and bridge calls
+│   ├── styles.css        # App styling
+│   └── normalize.css     # CSS reset
 ├── assets/
 │   ├── icon.ico                   # App icon
 │   ├── queries.json               # Queries list (8154 unique queries)
 │   └── screenshots/               # Screenshots and GIFs for documentation
 ├── src/
-│   ├── __init__.py                # Python package initialization
-│   ├── account_manager.py         # Multi-account CRUD + migration
-│   ├── api.py                     # Centralizes all main operations (bridge API exposed to JS)
-│   ├── config.py                  # Configuration constants/platform and file paths
-│   ├── daily_set.py               # Rewards Daily Set collection logic
-│   ├── driver_manager.py          # WebDriver setup and management
-│   ├── edge_policy.py             # Edge sign-in policy helpers (Windows)
-│   ├── history.py                 # Manages search history storage and retrieval
-│   ├── human_behavior.py          # Human-like mouse movement/clicks/scrolling
-│   ├── search_engine.py           # Handles search logic and interactions
-│   ├── settings_manager.py        # Manages user settings storage and retrieval
-│   └── utils.py                   # Utility functions (human-typing, update checks)
-├── AutoRewarder.py                # Python backend and webview window
-├── AutoRewarder_CLI.py            # Headless runner (multi-account aware)
-├── AutoRewarder.spec              # PyInstaller build spec
-├── AutoRewarder.iss               # Inno Setup installer script
-├── .pre-commit-config.yaml        # Pre-commit hooks configuration
-├── requirements.txt               # Production dependencies
-├── requirements-dev.txt           # Development & testing dependencies
-├── LICENSE                        # MIT License
-├── USER_GUIDE.md                  # End-user documentation
-└── README.md                      # Project overview and developer setup
+│   ├── __init__.py       # Python package initialization
+│   ├── api.py            # Centralizes all main operations (bridge API exposed to JS)
+│   ├── config.py         # Configuration constants/platform and file paths
+│   ├── utils.py          # Utility functions (human typing, update checks)
+│   ├── accounts/         # Multi-account management
+│   │   ├── manager.py    # Account CRUD + current account selection
+│   │   ├── meta.py       # Per-account metadata (first_setup_done, schedule)
+│   │   └── settings.py   # App-wide settings (hide_browser, autostart)
+│   ├── emulator/         # Selenium browser + human-like input
+│   │   ├── driver.py     # Edge WebDriver setup
+│   │   ├── human.py      # Human-like mouse / touch / scrolling
+│   │   └── edge_policy.py # Windows-only Edge auto-signin opt-out
+│   ├── search/           # Bing query execution + history
+│   │   ├── engine.py     # Search loop with human-like delays
+│   │   └── history.py    # Per-account search history JSON
+│   └── dailytasks/       # Rewards daily-set + more-activities automation
+│       ├── runner.py     # DailySet orchestrator + status persistence
+│       ├── card.py       # RewardsCard: DOM checks + click + tab dance
+│       └── card_js.py    # JS heuristics + CardStatus enum
+├── AutoRewarder.py            # Python backend and webview window
+├── AutoRewarder_CLI.py        # Headless runner (multi-account aware)
+├── AutoRewarder.spec          # PyInstaller build spec
+├── AutoRewarder.iss           # Inno Setup installer script
+├── .pre-commit-config.yaml    # Pre-commit hooks configuration
+├── requirements.txt           # Production dependencies
+├── requirements-dev.txt       # Development & testing dependencies
+├── LICENSE                    # MIT License
+├── USER_GUIDE.md              # End-user documentation
+└── README.md                  # Project overview and developer setup
 ```
 
 ---

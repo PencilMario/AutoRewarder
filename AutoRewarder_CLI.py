@@ -27,7 +27,7 @@ import time
 from datetime import date, datetime
 
 from src.api import AutoRewarderAPI
-from src.settings_manager import AccountMetaManager
+from src.accounts import AccountMetaManager
 from src.config import LOG_FILE_PATH, LOG_MAX_SIZE
 
 # ---------------------------------------------------------------------------

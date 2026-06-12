@@ -5,7 +5,7 @@ a = Analysis(
     ['AutoRewarder.py'],
     pathex=[],
     binaries=[],
-    datas=[('GUI', 'GUI'), ('assets', 'assets')],
+    datas=[('gui', 'gui'), ('assets', 'assets')],
     hiddenimports=[
         'selenium.webdriver.edge.webdriver',
         'pystray',

@@ -35,7 +35,7 @@ else:
 
 # Base paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GUI_DIR = os.path.join(BASE_DIR, "GUI")
+GUI_DIR = os.path.join(BASE_DIR, "gui")
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 # Portable config takes precedence

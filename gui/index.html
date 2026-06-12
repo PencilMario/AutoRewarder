@@ -176,11 +176,21 @@
           <div class="settings-group-title">General</div>
           <label class="settings-row">
             <div class="settings-row-text">
-              <div class="settings-row-label">Start with Windows</div>
-              <div class="settings-row-hint" id="startup_hint">Launch AutoRewarder when you sign in.</div>
+              <div class="settings-row-label">Enable Background Auto-Run</div>
+              <div class="settings-row-hint" id="startup_hint">Automatically run AutoRewarder in the background at each account's scheduled time.</div>
             </div>
             <span class="toggle-compact">
               <input type="checkbox" id="startupToggle">
+              <span class="toggle-pill"></span>
+            </span>
+          </label>
+          <label class="settings-row">
+            <div class="settings-row-text">
+              <div class="settings-row-label">Close to tray</div>
+              <div class="settings-row-hint">Clicking X minimizes to the system tray instead of quitting. Takes effect on next launch.</div>
+            </div>
+            <span class="toggle-compact">
+              <input type="checkbox" id="closeToTrayToggle">
               <span class="toggle-pill"></span>
             </span>
           </label>

@@ -12,7 +12,7 @@ import shutil
 import uuid
 from datetime import datetime
 
-from .config import (
+from ..config import (
     ACCOUNTS_DIR,
     ACCOUNTS_INDEX_PATH,
     APP_DIR,

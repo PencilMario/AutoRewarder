@@ -31,7 +31,7 @@ jobs:
     # linting
     - name: Run Flake8
       run: |
-        flake8 . --max-line-length=140
+        flake8 .
 
     # type checking
     # Add --ignore-missing-imports if you want to ignore missing type hints in third-party/old libraries

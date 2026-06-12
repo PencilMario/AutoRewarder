@@ -1,11 +1,9 @@
-"""Settings and metadata persistence for AutoRewarder."""
+"""Per-account metadata persistence (first_setup_done, schedule)."""
 
 import json
 import os
 
-from .config import APP_DIR, GLOBAL_SETTINGS_PATH, account_dir, account_meta_path
-
-SCHEMA_VERSION = 3
+from ..config import account_dir, account_meta_path
 
 DEFAULT_ACCOUNT_SCHEDULE = {
     # Master toggle for this account's scheduled headless run.
@@ -18,6 +16,10 @@ DEFAULT_ACCOUNT_SCHEDULE = {
     "queries_pc": 30,  # 0..130
     "queries_mobile": 20,  # 0..99
     "last_triggered_date": None,
+    # Wall-clock time at which the OS-level scheduled task fires for this
+    # account (24h "HH:MM"). Each account gets its own scheduled task so
+    # users can stagger runs (e.g. Alice 09:00, Bob 10:30).
+    "run_time": "09:00",
 }
 
 
@@ -68,8 +70,6 @@ def _write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temp_path = path + ".tmp"
 
-    # Clean a stale temp file that might have sticky attributes or be locked
-    # briefly. Ignore failures — we'll retry below.
     if os.path.exists(temp_path):
         try:
             os.remove(temp_path)
@@ -85,86 +85,11 @@ def _write_json(path, data):
             return
         except PermissionError as e:
             last_err = e
-            # Typical on Windows when AV scans the file between open & replace,
-            # or when another instance briefly holds it. Back off and retry.
             _time.sleep(0.15 * (attempt + 1))
         except OSError as e:
             last_err = e
             _time.sleep(0.1)
-    # All retries failed — let the caller decide whether it's fatal.
     raise last_err if last_err else OSError(f"Could not write {path}")
-
-
-class GlobalSettingsManager:
-    """
-    Manages app-wide (account-agnostic) settings.
-    Keys: hide_browser, current_account_id, schema_version.
-    """
-
-    def __init__(self):
-        self.path = GLOBAL_SETTINGS_PATH
-
-    def get_settings(self):
-        """Return settings merged with defaults."""
-        defaults = {
-            "hide_browser": False,
-            "current_account_id": None,
-            "schema_version": SCHEMA_VERSION,
-            # OS-level autostart. When True, the app registers a Run entry
-            # (Windows registry) or a .desktop autostart file (Linux).
-            "autoStartUp": False,
-        }
-
-        if APP_DIR and not os.path.exists(APP_DIR):
-            try:
-                os.makedirs(APP_DIR)
-            except OSError:
-                pass
-
-        if not os.path.exists(self.path):
-            # First-launch init. If we can't write (locked/denied), still
-            # return defaults so reads don't blow up — the next successful
-            # write (via save_settings from a user action) will create it.
-            try:
-                self.save_settings(defaults)
-            except OSError:
-                pass
-            return defaults
-
-        settings = _read_json(self.path, None)
-        if not isinstance(settings, dict):
-            # Recovery path: recreate defaults. If the write fails (e.g.
-            # transient Windows lock), don't crash the read — caller still
-            # gets a valid default dict.
-            try:
-                self.save_settings(defaults)
-            except OSError:
-                pass
-            return defaults
-
-        # Fill missing defaults without clobbering existing keys.
-        merged = {**defaults, **settings}
-        return merged
-
-    def save_settings(self, settings):
-        """Persist settings to disk."""
-        _write_json(self.path, settings)
-
-    def set_hide_browser(self, is_hide):
-        """Update the hide_browser flag in settings."""
-        settings = self.get_settings()
-        settings["hide_browser"] = bool(is_hide)
-        self.save_settings(settings)
-
-    def get_current_account_id(self):
-        """Return the current account id from settings."""
-        return self.get_settings().get("current_account_id")
-
-    def set_current_account_id(self, account_id):
-        """Persist the current account id in settings."""
-        settings = self.get_settings()
-        settings["current_account_id"] = account_id
-        self.save_settings(settings)
 
 
 class AccountMetaManager:
