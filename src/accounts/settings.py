@@ -97,6 +97,9 @@ class GlobalSettingsManager:
             # introduced in v3.3; users who prefer the standard X = quit
             # can flip it off in Settings. Read once at app startup.
             "close_to_tray": True,
+            # Default query counts.
+            "queries_pc": 30,
+            "queries_mobile": 20,
         }
 
         if APP_DIR and not os.path.exists(APP_DIR):
@@ -154,4 +157,24 @@ class GlobalSettingsManager:
         """Persist the current account id in settings."""
         settings = self.get_settings()
         settings["current_account_id"] = account_id
+        self.save_settings(settings)
+
+    def get_queries_pc(self):
+        """Return the saved PC queries count from settings."""
+        return self.get_settings().get("queries_pc", 30)
+
+    def set_queries_pc(self, count):
+        """Persist the PC queries count in settings."""
+        settings = self.get_settings()
+        settings["queries_pc"] = max(0, min(130, int(count)))
+        self.save_settings(settings)
+
+    def get_queries_mobile(self):
+        """Return the saved mobile queries count from settings."""
+        return self.get_settings().get("queries_mobile", 20)
+
+    def set_queries_mobile(self, count):
+        """Persist the mobile queries count in settings."""
+        settings = self.get_settings()
+        settings["queries_mobile"] = max(0, min(99, int(count)))
         self.save_settings(settings)

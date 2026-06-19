@@ -305,6 +305,38 @@ class AutoRewarderAPI:
         state = "ON (X → tray)" if value else "OFF (X → quit)"
         self.log(f"Close-to-tray: {state}. Restart to apply.")
 
+    def get_queries_counts(self):
+        """
+        Return the saved PC and Mobile query counts from global settings.
+
+        Returns:
+            dict: {"queries_pc": int, "queries_mobile": int}
+        """
+        return {
+            "queries_pc": self.global_settings.get_queries_pc(),
+            "queries_mobile": self.global_settings.get_queries_mobile(),
+        }
+
+    def set_queries_counts(self, queries_pc, queries_mobile):
+        """
+        Save PC and Mobile query counts to global settings.
+
+        Args:
+            queries_pc (int): Number of PC searches.
+            queries_mobile (int): Number of mobile searches.
+
+        Returns:
+            bool: True if successfully saved, False otherwise.
+        """
+        try:
+            self.global_settings.set_queries_pc(queries_pc)
+            self.global_settings.set_queries_mobile(queries_mobile)
+            self.log(f"Search counts saved: PC={queries_pc}, Mobile={queries_mobile}")
+            return True
+        except Exception as e:
+            self.log(f"[WARNING] Failed to save search counts: {e}")
+            return False
+
     # ------------------------------------------------------------------
     # Exposed to JS: per-account schedule + startup
     # ------------------------------------------------------------------
