@@ -268,6 +268,15 @@ function start_bot() {
   const stopBtn = document.getElementById('stop_btn');
   if (stopBtn) stopBtn.disabled = false;
 
+  // Save the query counts to global settings before running.
+  if (!dailyOnly) {
+    pywebview.api.set_queries_counts(pc, mobile).then(ok => {
+      if (!ok) console.error('Failed to save query counts (backend returned false).');
+    }).catch(err => {
+      console.error('Failed to save query counts:', err);
+    });
+  }
+
   update_status_indicator('executing');
   pywebview.api.main(pc, mobile, dailyOnly);
 }
@@ -286,6 +295,25 @@ document.addEventListener('DOMContentLoaded', function () {
   const toggle = document.getElementById('dailyOnlyToggle');
   if (toggle) toggle.addEventListener('change', _sync_daily_only_ui);
   _sync_daily_only_ui();
+
+  // Auto-save query counts when they change (on blur).
+  const pcField = document.getElementById('count_pc');
+  const mobileField = document.getElementById('count_mobile');
+  const save_counts = () => {
+    if (pcField && mobileField) {
+      const pc = parseInt(pcField.value, 10);
+      const mobile = parseInt(mobileField.value, 10);
+      if (!isNaN(pc) && !isNaN(mobile) && pc >= 0 && pc <= 130 && mobile >= 0 && mobile <= 99) {
+        pywebview.api.set_queries_counts(pc, mobile).then(ok => {
+          if (!ok) console.error('Failed to auto-save query counts (backend returned false).');
+        }).catch(err => {
+          console.error('Failed to auto-save query counts:', err);
+        });
+      }
+    }
+  };
+  if (pcField) pcField.addEventListener('blur', save_counts);
+  if (mobileField) mobileField.addEventListener('blur', save_counts);
 });
 
 function enable_start_button() {
@@ -1115,6 +1143,16 @@ window.addEventListener('pywebviewready', function() {
   pywebview.api.get_settings().then(function(settings) {
     const toggle = document.getElementById('hideBrowserToggle');
     if (toggle) toggle.checked = Boolean(settings.hide_browser);
+  });
+
+  // Load saved query counts from global settings.
+  pywebview.api.get_queries_counts().then(function(counts) {
+    const pcField = document.getElementById('count_pc');
+    const mobileField = document.getElementById('count_mobile');
+    if (pcField) pcField.value = counts.queries_pc;
+    if (mobileField) mobileField.value = counts.queries_mobile;
+  }).catch(err => {
+    console.error('Failed to load query counts:', err);
   });
 
   refresh_account_ui();
