@@ -515,6 +515,7 @@ class AutoRewarderAPI:
                 result = subprocess.run(
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
+                    creationflags=0x08000000,
                 )
                 if result.returncode == 0:
                     return True
@@ -704,6 +705,7 @@ class AutoRewarderAPI:
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
                     text=True,
+                    creationflags=0x08000000,
                 )
                 if q.returncode == 0:
                     d = subprocess.run(
@@ -716,6 +718,7 @@ class AutoRewarderAPI:
                         ],
                         capture_output=True,
                         text=True,
+                        creationflags=0x08000000,
                     )
                     if d.returncode == 0:
                         self.log("Removed legacy single-task scheduler")
@@ -903,6 +906,7 @@ class AutoRewarderAPI:
                 ],
                 capture_output=True,
                 text=True,
+                creationflags=0x08000000,
             )
             if result.returncode != 0:
                 self.log(
@@ -938,6 +942,7 @@ class AutoRewarderAPI:
                     "/F",
                 ],
                 capture_output=True,
+                creationflags=0x08000000,
             )
             return True
         except Exception:
@@ -1730,6 +1735,19 @@ class AutoRewarderAPI:
                 self.log("Stopped.")
             else:
                 self.log("Done!")
+
+                if self.account_meta is not None:
+                    try:
+                        from datetime import date
+
+                        current_schedule = self.account_meta.get_schedule()
+                        if isinstance(current_schedule, dict):
+                            current_schedule["last_triggered_date"] = (
+                                date.today().isoformat()
+                            )
+                            self.account_meta.set_schedule(current_schedule)
+                    except Exception as e:
+                        self.log(f"[WARNING] Failed to update deduplication date: {e}")
         finally:
             try:
                 if self._webview_window:
