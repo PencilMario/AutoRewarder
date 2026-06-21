@@ -158,7 +158,7 @@ When enabled, AutoRewarder uses your operating system's native task scheduler (W
 - **Missed Run Catch-up:** If your computer is turned off or asleep during a scheduled time, the run is not lost. The system will automatically catch up and execute the task a few minutes after your next boot.
 - **Smart Deduplication:** If you manually start a run before a delayed catch-up task fires, AutoRewarder detects this and safely skips the scheduled run to prevent double execution.
 
-To disable automated runs, simply turn off the global Schedule toggle or remove specific accounts from the schedule.
+To disable automated background runs, turn off **Enable Background Auto-Run** or disable scheduling for specific accounts.
 
 ### System Tray & Application Exit
 By default, clicking the "X" on the main window sends AutoRewarder to the system tray. This allows the application to remain active for background tasks.
