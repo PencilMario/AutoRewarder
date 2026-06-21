@@ -205,13 +205,13 @@ Output: `dist/AutoRewarder-Setup.exe`
 ```text
 AutoRewarder/
 ├── gui/
-│   ├── index.html            # Main window UI
-│   ├── history.html          # History view UI
-│   ├── history.css           # History view styling
-│   ├── script.js             # Frontend logic and bridge calls
-│   ├── settings.js           # Settings page logic and bridge calls
-│   ├── styles.css            # App styling
-│   └── normalize.css         # CSS reset
+│   ├── index.html             # Main window UI
+│   ├── history.html           # History view UI
+│   ├── history.css            # History view styling
+│   ├── script.js              # Frontend logic and bridge calls
+│   ├── settings.js            # Settings page logic and bridge calls
+│   ├── styles.css             # App styling
+│   └── normalize.css          # CSS reset
 ├── assets/
 │   ├── icon.ico               # App icon
 │   ├── queries.json           # Queries list (8154 unique queries)

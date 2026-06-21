@@ -515,6 +515,7 @@ class AutoRewarderAPI:
                 result = subprocess.run(
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
+                    creationflags=0x08000000,
                 )
                 if result.returncode == 0:
                     return True
@@ -704,6 +705,7 @@ class AutoRewarderAPI:
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
                     capture_output=True,
                     text=True,
+                    creationflags=0x08000000,
                 )
                 if q.returncode == 0:
                     d = subprocess.run(
@@ -716,6 +718,7 @@ class AutoRewarderAPI:
                         ],
                         capture_output=True,
                         text=True,
+                        creationflags=0x08000000,
                     )
                     if d.returncode == 0:
                         self.log("Removed legacy single-task scheduler")
@@ -903,6 +906,7 @@ class AutoRewarderAPI:
                 ],
                 capture_output=True,
                 text=True,
+                creationflags=0x08000000,
             )
             if result.returncode != 0:
                 self.log(
@@ -938,6 +942,7 @@ class AutoRewarderAPI:
                     "/F",
                 ],
                 capture_output=True,
+                creationflags=0x08000000,
             )
             return True
         except Exception:
