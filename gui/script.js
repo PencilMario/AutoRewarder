@@ -97,6 +97,61 @@ function prompt_modal(title, message, inputDefault, opts) {
   });
 }
 
+function default_proxy_config() {
+  return {
+    enabled: false,
+    scheme: 'http',
+    host: '',
+    port: 0,
+    username: '',
+    password: '',
+  };
+}
+
+function safe_decode_url_part(value) {
+  try {
+    return decodeURIComponent(value || '');
+  } catch (_) {
+    return value || '';
+  }
+}
+
+function parse_proxy_url(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return default_proxy_config();
+
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : 'http://' + text;
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch (_) {
+    return null;
+  }
+
+  const scheme = parsed.protocol.replace(':', '').toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') return null;
+  const host = parsed.hostname.trim();
+  const port = parsed.port ? parseInt(parsed.port, 10) : (scheme === 'https' ? 443 : 80);
+  if (!host || isNaN(port) || port < 1 || port > 65535) return null;
+
+  return {
+    enabled: true,
+    scheme: scheme,
+    host: host,
+    port: port,
+    username: safe_decode_url_part(parsed.username),
+    password: safe_decode_url_part(parsed.password),
+  };
+}
+
+function format_proxy_summary(proxy) {
+  if (!proxy || !proxy.enabled) return 'Proxy off';
+  const scheme = proxy.scheme === 'https' ? 'https' : 'http';
+  const host = proxy.host || '';
+  const port = proxy.port || '';
+  return host && port ? `Proxy ${scheme}://${host}:${port}` : 'Proxy on';
+}
+
 function confirm_modal(title, message, opts) {
   return open_modal({
     title: title,
@@ -546,12 +601,28 @@ async function prompt_and_create_account() {
   if (label === null) return;
   const trimmed = String(label).trim() || defaultLabel;
 
+  const proxyText = await prompt_modal(
+    'Account proxy',
+    'Optional. Enter http://user:pass@host:port or leave blank for no proxy.',
+    '',
+    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: 'Create' }
+  );
+  if (proxyText === null) return;
+
+  const proxyConfig = parse_proxy_url(proxyText);
+  if (!proxyConfig) {
+    show_toast('Proxy must be HTTP/HTTPS with a valid host and port.', 'warning');
+    return;
+  }
+
   show_toast(`Opening browser for "${trimmed}". Log in, then close the window.`, 'info', { duration: 6000 });
 
-  pywebview.api.create_account(trimmed).then(result => {
+  pywebview.api.create_account(trimmed, proxyConfig).then(result => {
     if (!result || !result.ok) {
       if (result && result.error === 'bot_running') {
         show_toast('Cannot add an account while the bot is running.', 'warning');
+      } else if (result && result.error === 'invalid_proxy') {
+        show_toast('Proxy settings are invalid — account not created.', 'warning');
       } else if (result && result.error === 'setup_failed') {
         show_toast('Setup cancelled — account not created.', 'warning');
       } else {
@@ -653,6 +724,7 @@ function render_schedule_cards(schedules) {
 
 function format_schedule_summary(item, sched, enabled) {
   const prefix = item.first_setup_done ? '' : 'Setup pending · ';
+  const proxySuffix = item.proxy && item.proxy.enabled ? ' · Proxy on' : '';
   if (!enabled) return prefix + 'Schedule off';
   const pc = sched.queries_pc != null ? sched.queries_pc : 30;
   const mobile = sched.queries_mobile != null ? sched.queries_mobile : 20;
@@ -660,14 +732,15 @@ function format_schedule_summary(item, sched, enabled) {
   if (sched.advancedScheduling) {
     const dur = sched.runDuration != null ? sched.runDuration : 3;
     const qph = sched.queriesPerHour != null ? sched.queriesPerHour : 10;
-    return `${prefix}${time} · PC ${pc} / Mobile ${mobile} · ${dur}h @ ${qph}/h`;
+    return `${prefix}${time} · PC ${pc} / Mobile ${mobile} · ${dur}h @ ${qph}/h${proxySuffix}`;
   }
-  return `${prefix}${time} · PC ${pc} / Mobile ${mobile}`;
+  return `${prefix}${time} · PC ${pc} / Mobile ${mobile}${proxySuffix}`;
 }
 
 function build_schedule_card(item) {
   const acc = { id: item.id, label: item.label };
   const sched = item.schedule || {};
+  const proxy = Object.assign(default_proxy_config(), item.proxy || {});
 
   const card = document.createElement('div');
   card.className = 'schedule-card' + (sched.enabled ? '' : ' disabled');
@@ -776,6 +849,51 @@ function build_schedule_card(item) {
   if (!advInput.checked) rowAdv.classList.add('dim');
   body.appendChild(rowAdv);
 
+  const proxyDivider = document.createElement('div');
+  proxyDivider.className = 'form-divider';
+  body.appendChild(proxyDivider);
+
+  const proxyRow = document.createElement('label');
+  proxyRow.className = 'sched-adv-row';
+  const proxyInput = document.createElement('input');
+  proxyInput.type = 'checkbox';
+  proxyInput.className = 'proxy-enabled';
+  proxyInput.checked = Boolean(proxy.enabled);
+  const proxyPill = document.createElement('span');
+  proxyPill.className = 'toggle-pill';
+  const proxyLabel = document.createElement('span');
+  proxyLabel.className = 'sched-adv-label';
+  proxyLabel.textContent = 'Use proxy for this account';
+  const proxyWrap = document.createElement('span');
+  proxyWrap.className = 'toggle-compact';
+  proxyWrap.appendChild(proxyInput);
+  proxyWrap.appendChild(proxyPill);
+  proxyRow.appendChild(proxyWrap);
+  proxyRow.appendChild(proxyLabel);
+  body.appendChild(proxyRow);
+
+  const proxyFields = document.createElement('div');
+  proxyFields.className = 'proxy-fields';
+  if (!proxyInput.checked) proxyFields.classList.add('dim');
+
+  const proxyMainRow = document.createElement('div');
+  proxyMainRow.className = 'form-grid-2';
+  proxyMainRow.appendChild(make_select_field('Proxy type', 'proxy-scheme', proxy.scheme || 'http', [
+    { value: 'http', label: 'HTTP' },
+    { value: 'https', label: 'HTTPS' },
+  ]));
+  proxyMainRow.appendChild(make_form_field('Port', 'number', 'proxy-port', proxy.port || '', { min: 1, max: 65535 }));
+  proxyFields.appendChild(proxyMainRow);
+
+  proxyFields.appendChild(make_form_field('Host', 'text', 'proxy-host', proxy.host || '', {}));
+
+  const proxyAuthRow = document.createElement('div');
+  proxyAuthRow.className = 'form-grid-2';
+  proxyAuthRow.appendChild(make_form_field('Username', 'text', 'proxy-username', proxy.username || '', {}));
+  proxyAuthRow.appendChild(make_form_field('Password', 'password', 'proxy-password', proxy.password || '', {}));
+  proxyFields.appendChild(proxyAuthRow);
+  body.appendChild(proxyFields);
+
   card.appendChild(body);
 
   // Accordion expand/collapse on trigger click — one open at a time.
@@ -825,8 +943,17 @@ function build_schedule_card(item) {
     rowAdv.classList.toggle('dim', !advInput.checked);
     refreshSummary();
   });
-  body.querySelectorAll('input[type="number"], input[type="time"]').forEach(f => {
+  proxyInput.addEventListener('change', () => {
+    proxyFields.classList.toggle('dim', !proxyInput.checked);
+    item.proxy = get_proxy_payload_from_card(card);
+    refreshSummary();
+  });
+  body.querySelectorAll('input[type="number"], input[type="time"], input[type="text"], input[type="password"], select').forEach(f => {
     f.addEventListener('input', refreshSummary);
+    f.addEventListener('change', () => {
+      item.proxy = get_proxy_payload_from_card(card);
+      refreshSummary();
+    });
   });
 
   return card;
@@ -853,6 +980,45 @@ function make_form_field(labelText, inputType, className, value, opts) {
   return wrap;
 }
 
+function make_select_field(labelText, className, value, options) {
+  const wrap = document.createElement('div');
+  wrap.className = 'form-field';
+
+  const label = document.createElement('label');
+  label.textContent = labelText;
+  wrap.appendChild(label);
+
+  const select = document.createElement('select');
+  select.className = className;
+  for (const opt of options || []) {
+    const option = document.createElement('option');
+    option.value = opt.value;
+    option.textContent = opt.label;
+    select.appendChild(option);
+  }
+  select.value = value || 'http';
+  wrap.appendChild(select);
+
+  return wrap;
+}
+
+function get_proxy_payload_from_card(card) {
+  const enabled = card.querySelector('.proxy-enabled').checked;
+  const scheme = card.querySelector('.proxy-scheme').value === 'https' ? 'https' : 'http';
+  const host = String(card.querySelector('.proxy-host').value || '').trim();
+  const port = parseInt(card.querySelector('.proxy-port').value, 10);
+  const username = String(card.querySelector('.proxy-username').value || '').trim();
+  const password = String(card.querySelector('.proxy-password').value || '');
+  return {
+    enabled: enabled,
+    scheme: scheme,
+    host: host,
+    port: isNaN(port) ? 0 : port,
+    username: username,
+    password: password,
+  };
+}
+
 async function save_settings() {
   const cards = Array.from(document.querySelectorAll('#schedule_accounts_list .schedule-card'));
   const closeToTrayWanted = document.getElementById('closeToTrayToggle').checked;
@@ -869,6 +1035,7 @@ async function save_settings() {
     const runDuration = parseInt(card.querySelector('.schedule-run-duration').value, 10);
     const queriesPerHour = parseInt(card.querySelector('.schedule-queries-per-hour').value, 10);
     const runTime = card.querySelector('.schedule-run-time').value;
+    const proxyPayload = get_proxy_payload_from_card(card);
 
     if (enabled) {
       if (isNaN(pc) || pc < 0 || pc > 130) {
@@ -899,6 +1066,17 @@ async function save_settings() {
       }
     }
 
+    if (proxyPayload.enabled) {
+      if (!proxyPayload.host) {
+        show_toast('Proxy host is required when proxy is enabled.', 'warning');
+        return;
+      }
+      if (!proxyPayload.port || proxyPayload.port < 1 || proxyPayload.port > 65535) {
+        show_toast('Proxy port must be between 1 and 65535.', 'warning');
+        return;
+      }
+    }
+
     payloads.push({
       id: id,
       payload: {
@@ -910,12 +1088,16 @@ async function save_settings() {
         queriesPerHour: isNaN(queriesPerHour) ? 10 : queriesPerHour,
         run_time: /^([01]\d|2[0-3]):[0-5]\d$/.test(runTime || '') ? runTime : '09:00',
       },
+      proxy: proxyPayload,
     });
   }
 
   try {
     const scheduleCalls = payloads.map(p =>
       pywebview.api.set_schedule(p.id, p.payload)
+    );
+    const proxyCalls = payloads.map(p =>
+      pywebview.api.set_account_proxy(p.id, p.proxy)
     );
 
     const startupInfo = await pywebview.api.get_launch_on_startup();
@@ -928,13 +1110,19 @@ async function save_settings() {
     // app launch, so saving each time is cheap and avoids a stale state.
     const closeToTrayCall = pywebview.api.set_close_to_tray(closeToTrayWanted);
 
-    const results = await Promise.all([...scheduleCalls, startupCall, closeToTrayCall]);
+    const results = await Promise.all([...scheduleCalls, ...proxyCalls, startupCall, closeToTrayCall]);
     const startupOk = results[results.length - 2];
-    const scheduleResults = results.slice(0, -2);
+    const scheduleResults = results.slice(0, scheduleCalls.length);
+    const proxyResults = results.slice(scheduleCalls.length, scheduleCalls.length + proxyCalls.length);
     const failures = scheduleResults.filter(ok => !ok).length;
+    const proxyFailures = proxyResults.filter(ok => !ok).length;
 
     if (failures > 0) {
       show_toast(`${failures} schedule${failures > 1 ? 's' : ''} failed to save.`, 'error');
+      return;
+    }
+    if (proxyFailures > 0) {
+      show_toast(`${proxyFailures} prox${proxyFailures > 1 ? 'ies' : 'y'} failed to save.`, 'error');
       return;
     }
     if (!startupOk && startupInfo && startupInfo.supported) {

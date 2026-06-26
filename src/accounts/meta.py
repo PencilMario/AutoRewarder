@@ -23,9 +23,52 @@ DEFAULT_ACCOUNT_SCHEDULE = {
 }
 
 
+DEFAULT_ACCOUNT_PROXY = {
+    "enabled": False,
+    "scheme": "http",
+    "host": "",
+    "port": 0,
+    "username": "",
+    "password": "",
+}
+
+
 def default_account_schedule():
     """Return a fresh copy of the default per-account schedule."""
     return dict(DEFAULT_ACCOUNT_SCHEDULE)
+
+
+def default_account_proxy():
+    """Return a fresh copy of the default per-account proxy config."""
+    return dict(DEFAULT_ACCOUNT_PROXY)
+
+
+def normalize_account_proxy(proxy):
+    """Validate and normalize a per-account proxy config."""
+    merged = default_account_proxy()
+    if isinstance(proxy, dict):
+        merged.update({k: proxy.get(k, v) for k, v in merged.items()})
+
+    merged["enabled"] = bool(merged.get("enabled"))
+    merged["scheme"] = str(merged.get("scheme") or "http").strip().lower()
+    if merged["scheme"] not in ("http", "https"):
+        raise ValueError("Proxy scheme must be http or https")
+
+    merged["host"] = str(merged.get("host") or "").strip()
+    try:
+        merged["port"] = int(merged.get("port") or 0)
+    except (TypeError, ValueError):
+        merged["port"] = 0
+    merged["username"] = str(merged.get("username") or "").strip()
+    merged["password"] = str(merged.get("password") or "")
+
+    if merged["enabled"]:
+        if not merged["host"]:
+            raise ValueError("Proxy host is required when proxy is enabled")
+        if merged["port"] < 1 or merged["port"] > 65535:
+            raise ValueError("Proxy port must be between 1 and 65535")
+
+    return merged
 
 
 def _read_json(path, default):
@@ -167,4 +210,24 @@ class AccountMetaManager:
         """
         meta = self.get_meta()
         meta["schedule"] = sched
+        self.save_meta(meta)
+
+    def get_proxy(self):
+        """Return this account's proxy config, with defaults for missing keys."""
+        meta = self.get_meta()
+        proxy = meta.get("proxy") if isinstance(meta, dict) else None
+        try:
+            return normalize_account_proxy(proxy)
+        except ValueError:
+            return default_account_proxy()
+
+    def set_proxy(self, proxy):
+        """
+        Persist this account's proxy config.
+
+        Raises:
+            ValueError: If an enabled proxy is incomplete or invalid.
+        """
+        meta = self.get_meta()
+        meta["proxy"] = normalize_account_proxy(proxy)
         self.save_meta(meta)

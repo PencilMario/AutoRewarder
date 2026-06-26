@@ -4,10 +4,63 @@
 // =========================================================================
 
 const ACCOUNT_ICONS = {
+  proxy:  '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 12h10"/><path d="M10 9l-3 3 3 3"/><path d="M14 9l3 3-3 3"/></svg>',
   rename: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
   setup:  '<svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 18 5.3L23 10"/></svg>',
   trash:  '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
 };
+
+function proxy_url_for_input(proxy) {
+  if (!proxy || !proxy.enabled) return '';
+  const scheme = proxy.scheme === 'https' ? 'https' : 'http';
+  const host = String(proxy.host || '').trim();
+  const port = proxy.port ? String(proxy.port) : '';
+  if (!host || !port) return '';
+
+  const username = String(proxy.username || '');
+  const password = String(proxy.password || '');
+  let auth = '';
+  if (username || password) {
+    auth = encodeURIComponent(username);
+    if (password) auth += ':' + encodeURIComponent(password);
+    auth += '@';
+  }
+  return `${scheme}://${auth}${host}:${port}`;
+}
+
+async function configure_account_proxy(acc) {
+  let current = default_proxy_config();
+  try {
+    const saved = await pywebview.api.get_account_proxy(acc.id);
+    current = Object.assign(current, saved || {});
+  } catch (_) {
+    show_toast('Could not load proxy settings.', 'error');
+    return;
+  }
+
+  const proxyText = await prompt_modal(
+    'Proxy settings',
+    `Set proxy for "${acc.label}". Leave blank to disable it.`,
+    proxy_url_for_input(current),
+    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: 'Save' }
+  );
+  if (proxyText === null) return;
+
+  const proxyConfig = parse_proxy_url(proxyText);
+  if (!proxyConfig) {
+    show_toast('Proxy must be HTTP/HTTPS with a valid host and port.', 'warning');
+    return;
+  }
+
+  pywebview.api.set_account_proxy(acc.id, proxyConfig).then(ok => {
+    if (!ok) {
+      show_toast('Proxy settings failed to save.', 'error');
+      return;
+    }
+    show_toast(format_proxy_summary(proxyConfig), 'success');
+    refresh_account_ui();
+  });
+}
 
 function render_accounts_section(accounts) {
   const list = document.getElementById('accounts_list');
@@ -45,6 +98,15 @@ function render_accounts_section(accounts) {
 
     const actions = document.createElement('div');
     actions.className = 'account-actions';
+
+    const proxyBtn = document.createElement('button');
+    proxyBtn.className = 'icon-btn';
+    proxyBtn.title = 'Proxy settings';
+    proxyBtn.setAttribute('aria-label', 'Proxy settings');
+    proxyBtn.innerHTML = ACCOUNT_ICONS.proxy;
+    proxyBtn.addEventListener('click', () => {
+      configure_account_proxy(acc);
+    });
 
     const renameBtn = document.createElement('button');
     renameBtn.className = 'icon-btn';
@@ -97,6 +159,7 @@ function render_accounts_section(accounts) {
       });
     });
 
+    actions.appendChild(proxyBtn);
     actions.appendChild(resetupBtn);
     actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);

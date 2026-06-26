@@ -3,6 +3,8 @@
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
 
+from .proxy import LocalProxyAdapter
+
 
 class DriverManager:
     """
@@ -13,16 +15,21 @@ class DriverManager:
     different profile_path.
     """
 
-    def __init__(self, profile_path=None, hide_browser=False):
+    def __init__(self, profile_path=None, hide_browser=False, proxy_config=None):
         """
         Args:
             profile_path (str | None): Absolute path to the Selenium --user-data-dir
                 directory. None when no account is selected (empty state). In that
                 case setup_driver will raise, since there is nothing to launch.
             hide_browser (bool): Whether to run the browser in headless mode.
+            proxy_config (dict | None): Per-account proxy settings. When enabled,
+                Edge is forced through a local adapter which forwards to the
+                configured upstream proxy.
         """
         self.profile_path = profile_path
         self.hide_browser = hide_browser
+        self.proxy_config = proxy_config or {}
+        self._proxy_adapter = None
 
     # Realistic iPhone UA so Microsoft Rewards credits the searches as mobile.
     MOBILE_USER_AGENT = (
@@ -67,6 +74,7 @@ class DriverManager:
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--no-default-browser-check")
         options.add_argument("--no-first-run")
+        options.add_argument("--edge-skip-compat-layer-relaunch")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
         if mobile:
@@ -90,7 +98,24 @@ class DriverManager:
             options.add_argument("--headless=new")
             options.add_argument("--disable-gpu")
 
-        _driver = webdriver.Edge(options=options)
+        proxy_enabled = isinstance(self.proxy_config, dict) and bool(
+            self.proxy_config.get("enabled")
+        )
+        if proxy_enabled:
+            try:
+                self._proxy_adapter = LocalProxyAdapter(self.proxy_config)
+                local_proxy_url = self._proxy_adapter.start()
+            except Exception as exc:
+                self.stop_proxy()
+                raise RuntimeError(f"Could not start account proxy: {exc}") from exc
+            options.add_argument(f"--proxy-server={local_proxy_url}")
+            options.add_argument("--disable-quic")
+
+        try:
+            _driver = webdriver.Edge(options=options)
+        except Exception:
+            self.stop_proxy()
+            raise
 
         if mobile:
             # Turn the session into a genuine mobile one at the engine level.
@@ -135,6 +160,13 @@ class DriverManager:
                 pass
 
         return _driver
+
+    def stop_proxy(self):
+        """Stop the local proxy adapter for this manager, if one is running."""
+        adapter = self._proxy_adapter
+        self._proxy_adapter = None
+        if adapter is not None:
+            adapter.stop()
 
     def close_running_edge(self):
         """

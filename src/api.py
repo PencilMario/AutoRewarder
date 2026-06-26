@@ -128,10 +128,13 @@ class AutoRewarderAPI:
         if current_id:
             profile = edge_profile_path(current_id)
             self.account_meta = AccountMetaManager(current_id)
+            proxy = self.account_meta.get_proxy()
             self.history = HistoryManager(history_path(current_id), logger=self.log)
             self.daily_set = DailySet(status_path(current_id), logger=self.log)
             self.driver_manager = DriverManager(
-                profile_path=profile, hide_browser=self.hide_browser
+                profile_path=profile,
+                hide_browser=self.hide_browser,
+                proxy_config=proxy,
             )
             self.search_engine = SearchEngine(logger=self.log, history=self.history)
         else:
@@ -139,7 +142,7 @@ class AutoRewarderAPI:
             self.history = None
             self.daily_set = None
             self.driver_manager = DriverManager(
-                profile_path=None, hide_browser=self.hide_browser
+                profile_path=None, hide_browser=self.hide_browser, proxy_config=None
             )
             self.search_engine = SearchEngine(logger=self.log, history=None)
 
@@ -251,11 +254,17 @@ class AutoRewarderAPI:
 
         self.is_driver_loading = True
         try:
+            warmup_driver = None
             warmup_driver = self.driver_manager.setup_driver(headless=True)
             warmup_driver.quit()
         except Exception as e:
             self.log(f"[ERROR] Error loading WebDriver: {e}")
         finally:
+            try:
+                if self.driver_manager is not None:
+                    self.driver_manager.stop_proxy()
+            except Exception:
+                pass
             self.is_driver_loading = False
             if self._webview_window:
                 self._webview_window.evaluate_js("stop_loader()")
@@ -395,9 +404,53 @@ class AutoRewarderAPI:
                     "label": acc["label"],
                     "first_setup_done": acc["first_setup_done"],
                     "schedule": AccountMetaManager(acc["id"]).get_schedule(),
+                    "proxy": AccountMetaManager(acc["id"]).get_proxy(),
                 }
             )
         return result
+
+    def get_account_proxy(self, account_id):
+        """Return a specific account's proxy config."""
+        if not account_id or not self.account_manager.exists(account_id):
+            return None
+        return AccountMetaManager(account_id).get_proxy()
+
+    def set_account_proxy(self, account_id, payload):
+        """
+        Persist a specific account's proxy config.
+
+        Returns:
+            bool: True if saved, False if the account/payload is invalid.
+        """
+        if self._run_lock.locked():
+            self.log("[WARNING] Cannot change proxy settings while the bot is running.")
+            return False
+        if not account_id or not self.account_manager.exists(account_id):
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        try:
+            meta = AccountMetaManager(account_id)
+            meta.set_proxy(payload)
+        except ValueError as e:
+            self.log(f"[ERROR] Invalid proxy for account '{account_id}': {e}")
+            return False
+
+        if account_id == self.account_manager.current_id():
+            if self.driver_manager is not None:
+                self.driver_manager.proxy_config = meta.get_proxy()
+
+        label = self.account_manager.get(account_id)
+        label = label["label"] if label else account_id
+        saved = meta.get_proxy()
+        if saved.get("enabled"):
+            self.log(
+                f"Proxy saved for '{label}': {saved['scheme']}://{saved['host']}:{saved['port']}"
+            )
+        else:
+            self.log(f"Proxy disabled for '{label}'.")
+        return True
 
     def set_schedule(self, account_id, payload):
         """
@@ -1176,7 +1229,7 @@ class AutoRewarderAPI:
         """Return the currently selected account, or None."""
         return self.account_manager.get_current()
 
-    def create_account(self, label):
+    def create_account(self, label, proxy_payload=None):
         """
         Create a new account, select it, and run First Setup against it.
         On setup failure (user closes browser without logging in), rolls back
@@ -1184,6 +1237,8 @@ class AutoRewarderAPI:
 
         Args:
             label (str): The user-friendly label for the new account.
+            proxy_payload (dict | None): Optional proxy config to save before
+                First Setup so setup also uses the account proxy.
 
         Returns:
             dict: {ok (bool), id (str), label (str)} on success, or {ok: False, error: str} on failure.
@@ -1198,6 +1253,20 @@ class AutoRewarderAPI:
 
         self.account_manager.select(new_id)
         self._rebuild_account_context()
+
+        if proxy_payload is not None and self.account_meta is not None:
+            try:
+                self.account_meta.set_proxy(proxy_payload)
+                if self.driver_manager is not None:
+                    self.driver_manager.proxy_config = self.account_meta.get_proxy()
+            except ValueError as e:
+                self.log(f"[ERROR] Invalid proxy for new account: {e}")
+                self.account_manager.delete(new_id)
+                self.account_manager.select(previous_id)
+                self._rebuild_account_context()
+                self._broadcast_account_ui()
+                return {"ok": False, "error": "invalid_proxy", "id": new_id}
+
         self._broadcast_account_ui()
 
         success = self._run_first_setup_for_current()
@@ -1347,12 +1416,19 @@ class AutoRewarderAPI:
         )
 
         # Capture current policy state so we can restore it afterwards.
-        previous_policy = edge_policy.get_current_value()
+        previous_policy = edge_policy.get_current_values()
+        previous_user_data_dir = edge_policy.get_user_data_dir()
         policy_applied = False
+        user_data_dir_applied = False
         if edge_policy.is_supported():
-            policy_applied = edge_policy.set_browser_signin_disabled(True)
+            policy_applied = edge_policy.set_identity_isolation_enabled(True)
+            user_data_dir_applied = edge_policy.set_user_data_dir(
+                self.driver_manager.profile_path
+            )
             if policy_applied:
-                self.log("Edge: browser sign-in temporarily disabled for this setup.")
+                self.log("Edge: OS-backed sign-in temporarily disabled for this setup.")
+            if user_data_dir_applied:
+                self.log("Edge: account profile directory forced for this setup.")
 
         setup_succeeded = False
         setup_driver = None
@@ -1364,7 +1440,9 @@ class AutoRewarderAPI:
         except Exception as e:
             self.log(f"[ERROR] Could not start the browser: {e}")
             if policy_applied:
-                edge_policy.restore_value(previous_policy)
+                edge_policy.restore_values(previous_policy)
+            if user_data_dir_applied:
+                edge_policy.restore_user_data_dir(previous_user_data_dir)
             return False
 
         try:
@@ -1449,10 +1527,16 @@ class AutoRewarderAPI:
                 setup_driver.quit()
             except Exception:
                 pass
+            try:
+                self.driver_manager.stop_proxy()
+            except Exception:
+                pass
 
             # Always restore the Edge policy to its previous state.
             if policy_applied:
-                edge_policy.restore_value(previous_policy)
+                edge_policy.restore_values(previous_policy)
+            if user_data_dir_applied:
+                edge_policy.restore_user_data_dir(previous_user_data_dir)
 
             if setup_succeeded:
                 self.log(
@@ -1800,6 +1884,10 @@ class AutoRewarderAPI:
                 self._driver.quit()
             except Exception as e:
                 self.log(f"[WARNING] Error closing driver: {e}")
+            try:
+                self.driver_manager.stop_proxy()
+            except Exception:
+                pass
             self._driver = None
             time.sleep(0.5)
 
@@ -1862,5 +1950,9 @@ class AutoRewarderAPI:
                 self._driver.quit()
             except Exception as e:
                 self.log(f"[WARNING] Error closing driver: {e}")
+            try:
+                self.driver_manager.stop_proxy()
+            except Exception:
+                pass
             self._driver = None
             time.sleep(0.5)

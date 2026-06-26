@@ -1230,7 +1230,7 @@ input[type="number"]:focus {
 }
 
 .schedule-card.expanded .schedule-card-body {
-  max-height: 320px;
+  max-height: 620px;
   opacity: 1;
   /* Padding top + a thin separator give a clear break between the header
      (avatar / status / toggle) and the form fields, so the body doesn't
@@ -1297,6 +1297,23 @@ input[type="number"]:focus {
   pointer-events: none;
 }
 
+.proxy-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 0.15s;
+}
+
+.proxy-fields.dim {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.form-divider {
+  height: 1px;
+  background: var(--border-soft);
+}
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1325,6 +1342,8 @@ input[type="number"]:focus {
 
 .form-field input[type="time"],
 .form-field input[type="number"],
+.form-field input[type="text"],
+.form-field input[type="password"],
 .form-field select {
   width: 100%;
   padding: 8px 10px;
