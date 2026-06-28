@@ -1,5 +1,5 @@
 from .manager import AccountManager
-from .meta import AccountMetaManager, default_account_schedule, detect_store_version
+from .meta import AccountMetaManager, default_account_schedule
 from .settings import GlobalSettingsManager
 
 __all__ = [
@@ -7,5 +7,4 @@ __all__ = [
     "AccountMetaManager",
     "GlobalSettingsManager",
     "default_account_schedule",
-    "detect_store_version",
 ]

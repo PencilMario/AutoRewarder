@@ -32,7 +32,6 @@ from .accounts import (
     AccountManager,
     AccountMetaManager,
     GlobalSettingsManager,
-    detect_store_version,
 )
 from .emulator import DriverManager, HumanBehavior, edge_policy
 from .search import HistoryManager, SearchEngine
@@ -184,7 +183,7 @@ class AutoRewarderAPI:
         import webview
 
         webview.create_window(
-            title="查询历史",
+            title="Query History",
             url=os.path.join(GUI_DIR, "history.html"),
             js_api=self,
             width=700,
@@ -206,7 +205,7 @@ class AutoRewarderAPI:
         try:
             needs_update, latest_version = check_for_updates(logger=self.log)
         except Exception as e:
-            self.log(f"[ERROR] 检查更新时出错：{e}")
+            self.log(f"[ERROR] Error checking for updates: {e}")
             return
 
         if not needs_update or not latest_version:
@@ -216,9 +215,10 @@ class AutoRewarderAPI:
 
         url = f"https://github.com/{REPO}/releases/latest"
         msg = (
-            f"新版本可用：{latest_version}（当前 {CURRENT_VERSION}）。\n"
-            f"链接已添加到日志区域。"
-            f"请下载最新版本以获得更好的性能并避免 Microsoft 更新可能带来的问题。"
+            f"Update available: {latest_version} (current {CURRENT_VERSION}).\n"
+            f"Link added to the log area. "
+            f"Please download the latest version for better performance and "
+            f"to avoid potential issues due to Microsoft updates."
         )
 
         # Structured call into JS: the text, the link label and the URL are
@@ -228,17 +228,17 @@ class AutoRewarderAPI:
         try:
             self._webview_window.evaluate_js(
                 "update_log_link("
-                f"{json.dumps(f'新版本 {latest_version} 可用。')}, "
-                f"{json.dumps('点击此处下载')}, "
+                f"{json.dumps(f'New version {latest_version} available.')}, "
+                f"{json.dumps('Click here to download')}, "
                 f"{json.dumps(url)})"
             )
         except Exception as e:
-            self.log(f"[ERROR] 显示更新链接时出错：{e}")
+            self.log(f"[ERROR] Error displaying update link: {e}")
 
         try:
             self._webview_window.evaluate_js(f"alert({json.dumps(msg)})")
         except Exception as e:
-            self.log(f"[ERROR] 显示更新提示时出错：{e}")
+            self.log(f"[ERROR] Error displaying update alert: {e}")
 
     def open_link(self, url):
         """Open a URL in the system default browser."""
@@ -258,7 +258,7 @@ class AutoRewarderAPI:
             warmup_driver = self.driver_manager.setup_driver(headless=True)
             warmup_driver.quit()
         except Exception as e:
-            self.log(f"[ERROR] 加载 WebDriver 时出错：{e}")
+            self.log(f"[ERROR] Error loading WebDriver: {e}")
         finally:
             try:
                 if self.driver_manager is not None:
@@ -295,7 +295,7 @@ class AutoRewarderAPI:
         if self.driver_manager is not None:
             self.driver_manager.hide_browser = bool(is_hide)
         self.global_settings.set_hide_browser(is_hide)
-        self.log(f"浏览器隐藏模式：{'开启' if is_hide else '关闭'}")
+        self.log(f"Browser hidden mode: {'ON' if is_hide else 'OFF'}")
 
     def get_close_to_tray(self):
         """Return whether the window X-close should minimize to tray."""
@@ -311,8 +311,8 @@ class AutoRewarderAPI:
                 False to quit the app entirely on X.
         """
         self.global_settings.set_close_to_tray(value)
-        state = "开启（X → 托盘）" if value else "关闭（X → 退出）"
-        self.log(f"关闭到托盘：{state}。重启后生效。")
+        state = "ON (X → tray)" if value else "OFF (X → quit)"
+        self.log(f"Close-to-tray: {state}. Restart to apply.")
 
     def get_queries_counts(self):
         """
@@ -352,10 +352,10 @@ class AutoRewarderAPI:
             )
 
             if after != before:
-                self.log(f"搜索次数已保存：PC={after[0]}，移动={after[1]}")
+                self.log(f"Search counts saved: PC={after[0]}, Mobile={after[1]}")
             return True
         except Exception as e:
-            self.log(f"[WARNING] 保存搜索次数失败：{e}")
+            self.log(f"[WARNING] Failed to save search counts: {e}")
             return False
 
     # ------------------------------------------------------------------
@@ -378,7 +378,7 @@ class AutoRewarderAPI:
         if not self._run_lock.locked():
             return False
 
-        self.log("已请求停止。正在关闭浏览器…")
+        self.log("Stop requested. Closing browser…")
         self._stop_event.set()
 
         try:
@@ -423,7 +423,7 @@ class AutoRewarderAPI:
             bool: True if saved, False if the account/payload is invalid.
         """
         if self._run_lock.locked():
-            self.log("[WARNING] 机器人运行时无法更改代理设置。")
+            self.log("[WARNING] Cannot change proxy settings while the bot is running.")
             return False
         if not account_id or not self.account_manager.exists(account_id):
             return False
@@ -446,72 +446,11 @@ class AutoRewarderAPI:
         saved = meta.get_proxy()
         if saved.get("enabled"):
             self.log(
-                f"代理已保存到 '{label}'：{saved['scheme']}://{saved['host']}:{saved['port']}"
+                f"Proxy saved for '{label}': {saved['scheme']}://{saved['host']}:{saved['port']}"
             )
         else:
-            self.log(f"代理已为 '{label}' 禁用。")
+            self.log(f"Proxy disabled for '{label}'.")
         return True
-
-    def detect_store_version(self):
-        """
-        Detect and persist the current account's Rewards store version.
-
-        Opens a **headless** Edge driver, navigates to `/earn` on
-        `rewards.bing.com`, and classifies the account as **old** (404)
-        or **new** (page loads normally).  The result is stored in the
-        account's `meta.json` and returned so the GUI can display it.
-
-        All automation code is written for the **old** layout; this method
-        is purely informational for now so users know which layout their
-        account has.  Future code can branch on the stored value.
-
-        Returns:
-            dict: `{"store_version": 1|2, "error": None|str}`
-        """
-        current_id = self.account_manager.current_id()
-        if not current_id:
-            return {"store_version": None, "error": "未选择账户"}
-        if self.account_meta is None:
-            return {"store_version": None, "error": "账户元数据不可用"}
-
-        from .emulator import DriverManager
-
-        proxy = self.account_meta.get_proxy()
-        profile = edge_profile_path(current_id)
-        mgr = DriverManager(
-            profile_path=profile,
-            hide_browser=True,
-            proxy_config=proxy,
-        )
-
-        driver = None
-        try:
-            driver = mgr.setup_driver(headless=True, disable_identity=False)
-            self.log("正在检测 Rewards 商店版本...")
-
-            version = detect_store_version(driver)
-            self.account_meta.set_store_version(version)
-
-            label = self.account_manager.get(current_id)
-            label = label["label"] if label else current_id
-            display = "新版" if version == 2 else "旧版"
-            self.log(f"账号 '{label}' 的 Rewards 商店版本：{display}")
-            return {"store_version": version, "error": None}
-
-        except Exception as e:
-            self.log(f"[ERROR] 检测商店版本失败：{e}")
-            return {"store_version": None, "error": str(e)}
-
-        finally:
-            try:
-                if driver is not None:
-                    driver.quit()
-            except Exception:
-                pass
-            try:
-                mgr.stop_proxy()
-            except Exception:
-                pass
 
     def set_schedule(self, account_id, payload):
         """
@@ -568,14 +507,14 @@ class AutoRewarderAPI:
         label = self.account_manager.get(account_id)
         label = label["label"] if label else account_id
         if new["enabled"]:
-            mode = "高级" if new["advancedScheduling"] else "简单"
+            mode = "advanced" if new["advancedScheduling"] else "simple"
             self.log(
-                f"计划 '{label}'（{mode}）@ {new['run_time']}："
-                f"PC={new['queries_pc']}，移动={new['queries_mobile']}，"
-                f"{new['runDuration']}小时 @ {new['queriesPerHour']}/小时"
+                f"Schedule '{label}' ({mode}) @ {new['run_time']}: "
+                f"PC={new['queries_pc']}, Mobile={new['queries_mobile']}, "
+                f"{new['runDuration']}h @ {new['queriesPerHour']}/h"
             )
         else:
-            self.log(f"计划 '{label}' 已禁用。")
+            self.log(f"Schedule '{label}' disabled.")
 
         # Re-sync the OS-level scheduled task. _sync_account_autostart
         # itself respects the global Start-with-Windows toggle and the
@@ -698,7 +637,7 @@ class AutoRewarderAPI:
             return
 
         if legacy:
-            self._safe_log("正在清理过时的旧版自动启动条目...")
+            self._safe_log("Cleaning up stale legacy autostart entries...")
             try:
                 self._cleanup_legacy_autostart()
             except Exception as e:
@@ -706,8 +645,8 @@ class AutoRewarderAPI:
 
         if needs_resync:
             self._safe_log(
-                f"正在刷新各账户计划任务 "
-                f"（架构 v{self._AUTOSTART_SCHEMA_VERSION}）..."
+                f"Refreshing per-account scheduled tasks "
+                f"(schema v{self._AUTOSTART_SCHEMA_VERSION})..."
             )
             try:
                 self._sync_all_autostart()
@@ -805,7 +744,7 @@ class AutoRewarderAPI:
                 ) as key:
                     try:
                         winreg.DeleteValue(key, _AUTOSTART_TASK_NAME)
-                        self.log("已移除旧版 HKCU 开机自启动项")
+                        self.log("Removed legacy HKCU Run autostart entry")
                     except FileNotFoundError:
                         pass
             except Exception:
@@ -835,7 +774,7 @@ class AutoRewarderAPI:
                         creationflags=0x08000000,
                     )
                     if d.returncode == 0:
-                        self.log("已移除旧版单任务计划程序")
+                        self.log("Removed legacy single-task scheduler")
                     else:
                         msg = (d.stderr or d.stdout or "").strip()
                         self.log(
@@ -852,7 +791,7 @@ class AutoRewarderAPI:
             if os.path.exists(old_desktop):
                 try:
                     os.remove(old_desktop)
-                    self.log("已移除旧版 .desktop 自启动项")
+                    self.log("Removed legacy .desktop autostart entry")
                 except OSError as e:
                     self.log(f"[WARNING] Could not remove .desktop: {e}")
             # Single-task systemd timer from the v3.3 design.
@@ -882,7 +821,7 @@ class AutoRewarderAPI:
                         except OSError as e:
                             self.log(f"[WARNING] Could not remove {path}: {e}")
                 if removed:
-                    self.log("已移除旧版单任务 systemd 定时器")
+                    self.log("Removed legacy single-task systemd timer")
                 try:
                     subprocess.run(
                         ["systemctl", "--user", "daemon-reload"],
@@ -1029,7 +968,7 @@ class AutoRewarderAPI:
                 )
                 return False
             self.log(
-                f"计划任务已注册：'{label or account_id}' 于 {run_time}"
+                f"Scheduled task registered: '{label or account_id}' at {run_time}"
             )
             return True
         except FileNotFoundError:
@@ -1110,7 +1049,7 @@ class AutoRewarderAPI:
                     f"{(result.stderr or result.stdout).strip()}"
                 )
                 return False
-            self.log(f"计划定时器已注册：'{desc_label}' 于 {run_time}")
+            self.log(f"Scheduled timer registered: '{desc_label}' at {run_time}")
             return True
         except FileNotFoundError:
             self.log("[ERROR] systemctl not found — systemd unavailable.")
@@ -1189,7 +1128,7 @@ class AutoRewarderAPI:
             return self._register_windows_task(account_id, run_time, label)
         if system == "Linux":
             return self._register_systemd_unit(account_id, run_time, label)
-        self.log("自动启动仅在 Windows 和 Linux 上支持。")
+        self.log("Autostart is only supported on Windows and Linux.")
         return False
 
     def _sync_all_autostart(self):
@@ -1217,7 +1156,7 @@ class AutoRewarderAPI:
         """
         system_name = platform.system()
         if system_name not in ("Windows", "Linux"):
-            self.log("自动启动仅在 Windows 和 Linux 上支持。")
+            self.log("Autostart is only supported on Windows and Linux.")
             return False
 
         # Persist user intent FIRST so _sync_account_autostart reads the
@@ -1233,12 +1172,12 @@ class AutoRewarderAPI:
             # Remove every per-account task that might have been registered.
             for acc in self.account_manager.list():
                 self._remove_account_autostart(acc["id"])
-            self.log("自动启动已禁用（所有账户任务已移除）")
+            self.log("Autostart disabled (all per-account tasks removed)")
             return True
 
         # Enable path: register tasks for every account with schedule.enabled.
         self._sync_all_autostart()
-        self.log("自动启动已启用（各账户计划任务已注册）")
+        self.log("Autostart enabled (per-account scheduled tasks registered)")
         return True
 
     def is_autostart_enabled(self):
@@ -1305,7 +1244,7 @@ class AutoRewarderAPI:
             dict: {ok (bool), id (str), label (str)} on success, or {ok: False, error: str} on failure.
         """
         if self._run_lock.locked():
-            self.log("[WARNING] 机器人运行时无法添加账户。")
+            self.log("[WARNING] Cannot add an account while the bot is running.")
             return {"ok": False, "error": "bot_running"}
 
         previous_id = self.account_manager.current_id()
@@ -1353,17 +1292,17 @@ class AutoRewarderAPI:
             bool: True if switching succeeded, False otherwise.
         """
         if self._run_lock.locked():
-            self.log("[WARNING] 机器人运行时无法切换账户。")
+            self.log("[WARNING] Cannot switch account while the bot is running.")
             return False
         if not self.account_manager.exists(account_id):
-            self.log(f"[ERROR] 未知账户：{account_id}")
+            self.log(f"[ERROR] Unknown account: {account_id}")
             return False
 
         self.account_manager.select(account_id)
         self._rebuild_account_context()
         current = self.account_manager.get_current()
         if current:
-            self.log(f"已切换到账户 '{current['label']}'。")
+            self.log(f"Switched to account '{current['label']}'.")
         self._broadcast_account_ui()
         return True
 
@@ -1398,7 +1337,7 @@ class AutoRewarderAPI:
         """
         if self._run_lock.locked() and account_id == self.account_manager.current_id():
             self.log(
-                "[WARNING] 机器人运行时无法删除当前账户。"
+                "[WARNING] Cannot delete the active account while the bot is running."
             )
             return False
 
@@ -1432,7 +1371,7 @@ class AutoRewarderAPI:
             bool: True if setup succeeded, False on failure or if the bot is running.
         """
         if self._run_lock.locked():
-            self.log("[WARNING] 机器人运行时无法重新运行设置。")
+            self.log("[WARNING] Cannot re-run setup while the bot is running.")
             return False
         if not self.account_manager.exists(account_id):
             return False
@@ -1467,13 +1406,13 @@ class AutoRewarderAPI:
         when setup ends, regardless of outcome.
         """
         if self.driver_manager is None or self.account_meta is None:
-            self.log("[ERROR] 未选择用于设置的账户。")
+            self.log("[ERROR] No account selected for setup.")
             return False
 
         current = self.account_manager.get_current()
         label = current["label"] if current else "account"
         self.log(
-            f"正在为 '{label}' 开始首次设置... 请登录您的 Microsoft 账户。"
+            f"Starting First Setup for '{label}'... Please log in to your Microsoft account."
         )
 
         # Capture current policy state so we can restore it afterwards.
@@ -1487,9 +1426,9 @@ class AutoRewarderAPI:
                 self.driver_manager.profile_path
             )
             if policy_applied:
-                self.log("Edge：本次设置已临时禁用系统登录。")
+                self.log("Edge: OS-backed sign-in temporarily disabled for this setup.")
             if user_data_dir_applied:
-                self.log("Edge：本次设置已强制指定账户配置文件目录。")
+                self.log("Edge: account profile directory forced for this setup.")
 
         setup_succeeded = False
         setup_driver = None
@@ -1499,7 +1438,7 @@ class AutoRewarderAPI:
                 headless=False, disable_identity=True
             )
         except Exception as e:
-            self.log(f"[ERROR] 无法启动浏览器：{e}")
+            self.log(f"[ERROR] Could not start the browser: {e}")
             if policy_applied:
                 edge_policy.restore_values(previous_policy)
             if user_data_dir_applied:
@@ -1511,7 +1450,7 @@ class AutoRewarderAPI:
             # profile. Before showing anything to the user, wipe every bit of
             # state that could carry an identity forward (cookies, cache,
             # storage) via the DevTools protocol.
-            self.log("正在清除缓存的 Microsoft 身份信息...")
+            self.log("Clearing any cached Microsoft identity...")
             try:
                 setup_driver.get("about:blank")
                 time.sleep(0.5)
@@ -1538,7 +1477,7 @@ class AutoRewarderAPI:
             # OAuth2 parameter that forces re-authentication no matter what
             # cached/WAM session exists. The wreply sends the user back to
             # Bing after a successful sign-in.
-            self.log("正在打开 Microsoft 登录页面...")
+            self.log("Opening the Microsoft sign-in page...")
             try:
                 setup_driver.get(
                     "https://login.live.com/login.srf?"
@@ -1557,11 +1496,11 @@ class AutoRewarderAPI:
                 # Fallback if the forced-prompt URL fails.
                 setup_driver.get("https://login.live.com/")
 
-            self.log("""请使用与此配置文件对应的 Microsoft 账户登录。
-- 请手动输入邮箱和密码，不要选择建议的账户。
-- 如果 Microsoft 仍然自动连接了其他账户，请点击头像
-  （Bing 右上角）并选择"使用其他账户登录"。
-- 完成后关闭浏览器。""")
+            self.log("""Sign in with the Microsoft account for THIS profile.
+- Enter the email and password yourself; don't pick a suggested account.
+- If Microsoft still auto-connects another account, click the avatar
+  (top-right on Bing) and choose 'Sign in with a different account'.
+- Close the browser when you're done.""")
 
             while len(setup_driver.window_handles) > 0:
                 time.sleep(1)
@@ -1577,10 +1516,10 @@ class AutoRewarderAPI:
             ):
                 setup_succeeded = True
             else:
-                self.log(f"[ERROR] 设置过程中出错：{e}")
+                self.log(f"[ERROR] Error during setup: {e}")
                 if self.history is not None:
                     self.history.add_to_history(
-                        "首次设置失败", "[ERROR] " + str(e)[:50]
+                        "First Setup Failed", "[ERROR] " + str(e)[:50]
                     )
 
         finally:
@@ -1601,11 +1540,11 @@ class AutoRewarderAPI:
 
             if setup_succeeded:
                 self.log(
-                    f"'{label}' 的首次设置已完成！您现在可以启动机器人了。"
+                    f"First Setup completed for '{label}'! You can now start the bot."
                 )
                 self.account_meta.mark_up_as_done()
                 if self.history is not None:
-                    self.history.add_to_history("首次设置完成", "成功")
+                    self.history.add_to_history("First Setup Completed", "Success")
 
         return setup_succeeded
 
@@ -1705,11 +1644,11 @@ class AutoRewarderAPI:
 
         total = pc + mobile
         self.log(
-            f"高级调度：PC={pc}，移动={mobile}，{duration_hours}小时（qph={qph}）"
+            f"Advanced scheduling: PC={pc}, Mobile={mobile} over {duration_hours}h (qph={qph})"
         )
 
         if total <= 0:
-            self.log("[WARNING] 无需执行任何操作（PC 和移动查询数均为 0）。")
+            self.log("[WARNING] Nothing to do (PC and Mobile counts are both 0).")
             return
 
         if qph > 0:
@@ -1723,7 +1662,7 @@ class AutoRewarderAPI:
         interval = total_seconds / max(num_batches, 1)
 
         self.log(
-            f"计划 {num_batches} 批，每批 ~{per_batch} 次查询，间隔 ~{interval:.1f}秒"
+            f"Planning {num_batches} batches of ~{per_batch} queries, interval ~{interval:.1f}s"
         )
 
         pc_left = pc
@@ -1744,8 +1683,8 @@ class AutoRewarderAPI:
                 break
 
             self.log(
-                f"批次 {i+1}/{num_batches}：PC={batch_pc}，移动={batch_mobile} "
-                f"（PC 剩余 {pc_left}，移动剩余 {mobile_left}）"
+                f"Batch {i+1}/{num_batches}: PC={batch_pc}, Mobile={batch_mobile} "
+                f"(PC left {pc_left}, Mobile left {mobile_left})"
             )
 
             if batch_pc > 0 and not self._stop_event.is_set():
@@ -1763,12 +1702,12 @@ class AutoRewarderAPI:
                 break
 
             sleep_time = max(5.0, interval * random.uniform(0.75, 1.25))
-            self.log(f"休眠 {sleep_time:.1f}秒，直到下一批次")
+            self.log(f"Sleeping {sleep_time:.1f}s until next batch")
             if self._sleep_with_stop(sleep_time):
                 break
 
         if not self._stop_event.is_set() and pc_left <= 0 and mobile_left <= 0:
-            self.log("高级调度完成！")
+            self.log("Advanced schedule completed!")
 
     def main(self, pc_count, mobile_count=0, daily_only=False):
         """
@@ -1790,13 +1729,13 @@ class AutoRewarderAPI:
             daily_only (bool): whether to skip searches and just run the Daily Set
         """
         if self.account_manager.current_id() is None:
-            self.log("[ERROR] 未选择账户。请通过下拉菜单添加一个。")
+            self.log("[ERROR] No account selected. Add one via the dropdown.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
             return
 
         if self.account_meta is None or not self.account_meta.is_first_setup_done():
-            self.log("[ERROR] 此账户尚未完成首次设置。")
+            self.log("[ERROR] First Setup has not been completed for this account.")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
             return
@@ -1810,7 +1749,7 @@ class AutoRewarderAPI:
             pc_count, mobile_count = 0, 0
 
         if not daily_only and pc_count == 0 and mobile_count == 0:
-            self.log("[WARNING] 无需执行任何操作（PC 和移动查询数均为 0）。")
+            self.log("[WARNING] Nothing to do (PC and Mobile counts are both 0).")
             if self._webview_window:
                 self._webview_window.evaluate_js("enable_start_button()")
             return
@@ -1836,11 +1775,11 @@ class AutoRewarderAPI:
             and not schedule_enabled
         ):
             self.log(
-                "[WARNING] 高级调度已启用，但计划开关未开启。将按正常速度运行。"
+                "[WARNING] Advanced scheduling is enabled, but Schedule is off. Running normal pace."
             )
 
         if not self._run_lock.acquire(blocking=False):
-            self.log("[WARNING] 已有运行正在进行中。")
+            self.log("[WARNING] A run is already in progress.")
             return
 
         # Reset stop flag before each run so a previous Stop doesn't carry over.
@@ -1848,9 +1787,9 @@ class AutoRewarderAPI:
 
         try:
             if daily_only:
-                self.log("正在启动 AutoRewarder（仅每日任务）...")
+                self.log("Starting AutoRewarder (Daily tasks only)...")
             else:
-                self.log("正在启动 AutoRewarder（Edge 完整版）...")
+                self.log("Starting AutoRewarder (Edge Edition)...")
             if self._webview_window:
                 try:
                     self._webview_window.evaluate_js(
@@ -1865,7 +1804,7 @@ class AutoRewarderAPI:
                 if use_advanced:
                     duration = schedule.get("runDuration", 3)
                     qph = schedule.get("queriesPerHour", 10)
-                    self.log("高级调度已启用。使用计划节奏。")
+                    self.log("Advanced scheduling enabled. Using scheduled pacing.")
                     self._run_advanced_schedule(pc_count, mobile_count, duration, qph)
                 else:
                     if pc_count > 0 and not self._stop_event.is_set():
@@ -1877,9 +1816,9 @@ class AutoRewarderAPI:
                         )
 
             if self._stop_event.is_set():
-                self.log("已停止。")
+                self.log("Stopped.")
             else:
-                self.log("完成！")
+                self.log("Done!")
 
                 if self.account_meta is not None:
                     try:
@@ -1892,7 +1831,7 @@ class AutoRewarderAPI:
                             )
                             self.account_meta.set_schedule(current_schedule)
                     except Exception as e:
-                        self.log(f"[WARNING] 更新去重日期失败：{e}")
+                        self.log(f"[WARNING] Failed to update deduplication date: {e}")
         finally:
             try:
                 if self._webview_window:
@@ -1914,16 +1853,16 @@ class AutoRewarderAPI:
         just confirms state without wasting clicks.
         """
         if self.daily_set is None:
-            self.log("[ERROR] 此账户的每日任务不可用。")
+            self.log("[ERROR] Daily tasks unavailable for this account.")
             return
 
         if not self.daily_set.should_perform_daily_set():
             self.log(
-                "注意：status.json 中今天已标记为完成，"
-                "但因为是您手动点击运行，将继续执行。"
+                "Note: today is already marked as done in status.json, "
+                "but running anyway since you asked explicitly."
             )
 
-        self.log("=== 仅每日任务 — 不执行搜索 ===")
+        self.log("=== Daily tasks only — no searches ===")
 
         self._driver = self.driver_manager.setup_driver(mobile=False)
         try:
@@ -1932,19 +1871,19 @@ class AutoRewarderAPI:
                 self._driver, human, stop_event=self._stop_event
             )
             if self._stop_event.is_set():
-                self.log("每日任务已被停止。")
+                self.log("Daily tasks aborted by Stop.")
                 return
             if success:
                 self.daily_set.mark_as_completed()
-                self.log("每日任务已完成并标记为今日完成。")
+                self.log("Daily tasks completed and marked as done for today.")
             else:
-                self.log("每日任务失败。未标记为今日完成。")
+                self.log("Daily tasks failed. Not marked as done for today.")
 
         finally:
             try:
                 self._driver.quit()
             except Exception as e:
-                self.log(f"[WARNING] 关闭驱动时出错：{e}")
+                self.log(f"[WARNING] Error closing driver: {e}")
             try:
                 self.driver_manager.stop_proxy()
             except Exception:
@@ -1962,17 +1901,19 @@ class AutoRewarderAPI:
             count (int): how many searches to perform in this phase
             do_daily_set (bool): whether to run the Daily Set after searches (PC phase only)
         """
-        label = "移动端" if mobile else "PC"
-        self.log(f"=== {label} 阶段 — {count} 次查询 ===")
+        label = "Mobile" if mobile else "PC"
+        self.log(
+            f"=== {label} phase — {count} {'queries' if count != 1 else 'query'} ==="
+        )
 
         queries_to_search = self.search_engine.load_queries_from_json(
             JSON_FILE_PATH, num_needed=count
         )
         if not queries_to_search:
-            self.log(f"[WARNING] {label}：没有可用查询。跳过此阶段。")
+            self.log(f"[WARNING] {label}: no queries available. Skipping phase.")
             if self.history is not None:
                 self.history.add_to_history(
-                    "N/A", f"[ERROR] {label}：没有可用查询"
+                    "N/A", f"[ERROR] {label}: no queries available"
                 )
             return
 
@@ -1990,7 +1931,7 @@ class AutoRewarderAPI:
                 and not self._stop_event.is_set()
                 and self.daily_set.should_perform_daily_set()
             ):
-                self.log("今天尚未完成每日任务。正在开始每日任务...")
+                self.log("Daily Set not completed today. Starting Daily Set tasks...")
                 human = HumanBehavior(self._driver, show_cursor=True, mobile=mobile)
                 success = self.daily_set.perform_daily_set(
                     self._driver, human, stop_event=self._stop_event
@@ -1999,16 +1940,16 @@ class AutoRewarderAPI:
                     if success:
                         self.daily_set.mark_as_completed()
                         self.log(
-                            "每日任务已完成并标记为今日完成。"
+                            "Daily Set tasks completed and marked as done for today."
                         )
                     else:
-                        self.log("每日任务失败。未标记为今日完成。")
+                        self.log("Daily Set failed. Not marked as done for today.")
 
         finally:
             try:
                 self._driver.quit()
             except Exception as e:
-                self.log(f"[WARNING] 关闭驱动时出错：{e}")
+                self.log(f"[WARNING] Error closing driver: {e}")
             try:
                 self.driver_manager.stop_proxy()
             except Exception:

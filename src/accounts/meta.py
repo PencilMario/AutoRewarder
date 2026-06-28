@@ -2,7 +2,6 @@
 
 import json
 import os
-import time
 
 from ..config import account_dir, account_meta_path
 
@@ -53,7 +52,7 @@ def normalize_account_proxy(proxy):
     merged["enabled"] = bool(merged.get("enabled"))
     merged["scheme"] = str(merged.get("scheme") or "http").strip().lower()
     if merged["scheme"] not in ("http", "https"):
-        raise ValueError("代理协议必须是 http 或 https")
+        raise ValueError("Proxy scheme must be http or https")
 
     merged["host"] = str(merged.get("host") or "").strip()
     try:
@@ -65,9 +64,9 @@ def normalize_account_proxy(proxy):
 
     if merged["enabled"]:
         if not merged["host"]:
-            raise ValueError("启用代理时必须提供代理主机")
+            raise ValueError("Proxy host is required when proxy is enabled")
         if merged["port"] < 1 or merged["port"] > 65535:
-            raise ValueError("代理端口必须在 1 到 65535 之间")
+            raise ValueError("Proxy port must be between 1 and 65535")
 
     return merged
 
@@ -152,7 +151,7 @@ class AccountMetaManager:
 
     def get_meta(self):
         """Return per-account meta merged with defaults."""
-        defaults = {"first_setup_done": False, "store_version": 1}
+        defaults = {"first_setup_done": False}
 
         if not os.path.exists(account_dir(self.account_id)):
             try:
@@ -189,28 +188,6 @@ class AccountMetaManager:
         """Mark first setup as completed."""
         meta = self.get_meta()
         meta["first_setup_done"] = True
-        self.save_meta(meta)
-
-    def get_store_version(self):
-        """
-        Return the cached store version for this account.
-        Returns 1 or 2 (1 = old, 2 = new). Defaults to 1 when unset.
-        """
-        meta = self.get_meta()
-        version = meta.get("store_version", 1)
-        return version if version in (1, 2) else 1
-
-    def set_store_version(self, version):
-        """
-        Persist the detected store version for this account.
-
-        Args:
-            version: 1 (old) or 2 (new)
-        """
-        if version not in (1, 2):
-            raise ValueError(f"store_version must be 1 (old) or 2 (new), got {version!r}")
-        meta = self.get_meta()
-        meta["store_version"] = version
         self.save_meta(meta)
 
     def get_schedule(self):
@@ -254,65 +231,3 @@ class AccountMetaManager:
         meta = self.get_meta()
         meta["proxy"] = normalize_account_proxy(proxy)
         self.save_meta(meta)
-
-
-# Minimum delay (seconds) before the earn-page check fires, letting the SPA
-# redirect a 404 before we read the DOM.
-_EARN_PAGE_WAIT = 4
-
-_404_INDICATORS = ("404", "page not found", "this page could not be found",
-                   "this page is not available", "sorry, this page isn't available")
-
-
-def detect_store_version(driver):
-    """
-    Detect whether the current account's Rewards store is old or new.
-
-    Visits `/earn` on rewards.bing.com:
-
-      * **Old version** - the server returns an HTTP 404; the page body
-        contains 404 / "page not found" text.
-      * **New version** - the page loads normally (SPA or redirect to the
-        dashboard) without a 404 body.
-
-    All existing code assumes the **old** layout.  Call this function during
-    first setup or at the start of a run and store the result via
-    `AccountMetaManager.set_store_version()`.
-
-    Args:
-        driver: A Selenium `WebDriver`, already logged into Microsoft
-            Rewards on `rewards.bing.com`.
-
-    Returns:
-        str: `"old"` or `"new"`.
-    """
-    original_url = driver.current_url
-
-    try:
-        driver.get("https://rewards.bing.com/earn")
-        time.sleep(_EARN_PAGE_WAIT)
-
-        # Read page text via JS - avoids stale-element issues after SPA
-        # navigation and is more robust than find_element.
-        body_text = driver.execute_script(
-            "return (document.body.innerText || document.body.textContent || '').toLowerCase();"
-        )
-
-        if any(indicator in body_text for indicator in _404_INDICATORS):
-            return 1
-
-        # If we're still on a rewards.bing.com page without 404 text,
-        # it's the new version.
-        if "rewards.bing.com" in driver.current_url:
-            return "new"
-
-        return 1
-
-    except Exception:
-        return 1
-
-    finally:
-        try:
-            driver.get("https://rewards.bing.com")
-        except Exception:
-            pass
