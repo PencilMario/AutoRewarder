@@ -32,7 +32,7 @@ class LocalProxyAdapter:
 
         scheme = self._scheme()
         if scheme not in ("http", "https"):
-            raise RuntimeError("Only HTTP and HTTPS upstream proxies are supported")
+            raise RuntimeError("仅支持 HTTP 和 HTTPS 上游代理")
 
         self._server = _ProxyServer(("127.0.0.1", 0), _ProxyHandler)
         self._server.adapter = self
@@ -62,7 +62,7 @@ class LocalProxyAdapter:
         host = str(self.proxy_config.get("host") or "").strip()
         port = int(self.proxy_config.get("port") or 0)
         if not host or port <= 0:
-            raise RuntimeError("Proxy host and port are required")
+            raise RuntimeError("代理主机和端口是必需的")
 
         sock = socket.create_connection((host, port), timeout=30)
         if self._scheme() == "https":
@@ -129,7 +129,7 @@ class _ProxyHandler(socketserver.BaseRequestHandler):
             _relay(client, upstream)
         except Exception as exc:
             if adapter.logger:
-                adapter.logger(f"[WARNING] Proxy adapter connection failed: {exc}")
+                adapter.logger(f"[WARNING] 代理适配器连接失败：{exc}")
         finally:
             if upstream is not None:
                 try:

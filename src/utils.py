@@ -45,8 +45,8 @@ def check_for_updates(logger=None):
                 return latest != CURRENT_VERSION, latest
         elif response.status_code == 429:
             if logger:
-                logger("[WARNING] GitHub API rate limit reached (429).")
-                logger("Try again later or check manually for updates.")
+                logger("[WARNING] GitHub API 速率限制已达上限 (429)。")
+                logger("请稍后重试或手动检查更新。")
         elif response.status_code == 403:
 
             is_rate_limit = response.headers.get("X-Ratelimit-Remaining") == "0"
@@ -54,23 +54,23 @@ def check_for_updates(logger=None):
             if logger:
                 if is_rate_limit:
                     logger(
-                        "[WARNING] GitHub API rate limit exceeded (403). Try again later."
+                        "[WARNING] GitHub API 速率限制已超限 (403)。请稍后重试。"
                     )
                 else:
                     logger(
-                        "[WARNING] GitHub access forbidden (403). Check your VPN or connection."
+                        "[WARNING] GitHub 访问被拒绝 (403)。请检查您的 VPN 或网络连接。"
                     )
         else:
             if logger:
                 logger(
-                    f"[WARNING] GitHub update check failed. Status: {response.status_code}"
+                    f"[WARNING] GitHub 更新检查失败。状态码：{response.status_code}"
                 )
 
     except requests.exceptions.RequestException as e:
         if logger:
-            logger(f"[WARNING] Network error while checking for updates: {e}")
+            logger(f"[WARNING] 检查更新时网络错误：{e}")
     except Exception as e:
         if logger:
-            logger(f"[ERROR] Unexpected error while checking for updates: {e}")
+            logger(f"[ERROR] 检查更新时意外错误：{e}")
 
     return False, None

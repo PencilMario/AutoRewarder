@@ -82,7 +82,7 @@ class DailySet:
                 data = json.load(file)
                 return data.get("last_daily_set_date") != today
         except Exception:
-            self._log(f"[ERROR] Failed to read status file: {self.status_file}")
+            self._log(f"[ERROR] 读取状态文件失败：{self.status_file}")
             return True
 
     def mark_as_completed(self):
@@ -95,7 +95,7 @@ class DailySet:
                 with open(self.status_file, "r", encoding="utf-8") as file:
                     data = json.load(file)
             except Exception:
-                self._log(f"[ERROR] Failed to read status file: {self.status_file}")
+                self._log(f"[ERROR] 读取状态文件失败：{self.status_file}")
 
         data["last_daily_set_date"] = today
 
@@ -136,7 +136,7 @@ class DailySet:
         """
         all_cards = driver.find_elements(By.CSS_SELECTOR, selector)
         if not all_cards:
-            self._log(f"[INFO] No {section_name} cards on page.")
+            self._log(f"[INFO] 页面上没有 {section_name} 卡片。")
             return {"already": 0, "newly": 0, "final": 0, "total": 0, "attempted": 0}
 
         # Drop cards whose root is hidden (tomorrow's Daily Set lives in the
@@ -147,10 +147,10 @@ class DailySet:
         hidden_count = len(all_cards) - len(cards)
         if hidden_count:
             self._log(
-                f"{section_name}: {hidden_count} hidden card(s) ignored (likely tomorrow's preview)."
+                f"{section_name}：已忽略 {hidden_count} 个隐藏卡片（可能是明日预览）。"
             )
         if not cards:
-            self._log(f"[INFO] No visible {section_name} cards on page.")
+            self._log(f"[INFO] 页面上没有可见的 {section_name} 卡片。")
             return {"already": 0, "newly": 0, "final": 0, "total": 0, "attempted": 0}
 
         # Bring the section into view once so subsequent clicks aren't blocked
@@ -180,11 +180,11 @@ class DailySet:
 
         if locked_count:
             self._log(
-                f"{section_name}: {locked_count} card(s) locked (unlocks later) — skipped."
+                f"{section_name}：{locked_count} 个卡片已锁定（稍后解锁）— 已跳过。"
             )
         if excluded_count:
             self._log(
-                f"{section_name}: {excluded_count} promo/sweepstake card(s) — skipped (no per-click points)."
+                f"{section_name}：{excluded_count} 个推广/抽奖卡片 — 已跳过（无点击积分）。"
             )
 
         # Diagnostic when detection looks off — only fires on sections with
@@ -196,17 +196,17 @@ class DailySet:
             sample = self.cards.diagnose(cards[0])
             if sample:
                 self._log(
-                    f"[DIAG] {section_name} card #1 visible icon classes: {sample}"
+                    f"[DIAG] {section_name} 第一个卡片的可见图标类：{sample}"
                 )
 
         if not incomplete_indices:
             if total_actionable == 0:
                 self._log(
-                    f"{section_name}: all {len(cards)} cards locked, nothing to do."
+                    f"{section_name}：全部 {len(cards)} 张卡片已锁定，无需操作。"
                 )
             else:
                 self._log(
-                    f"{section_name}: {already_complete}/{total_actionable} already complete."
+                    f"{section_name}：{already_complete}/{total_actionable} 已完成。"
                 )
             return {
                 "already": already_complete,
@@ -217,13 +217,13 @@ class DailySet:
             }
 
         self._log(
-            f"{section_name}: {already_complete}/{total_actionable} already complete, "
-            f"attempting {len(incomplete_indices)} remaining."
+            f"{section_name}：{already_complete}/{total_actionable} 已完成，"
+            f"将尝试剩余 {len(incomplete_indices)} 个。"
         )
 
         for idx in incomplete_indices:
             if stop_event is not None and stop_event.is_set():
-                self._log(f"Stop requested — halting {section_name} loop.")
+                self._log(f"已请求停止 — 正在终止 {section_name} 循环。")
                 break
 
             # Re-apply the same visibility filter used to build
@@ -235,8 +235,7 @@ class DailySet:
             current = [c for c in current_all if self.cards.is_visible(c)]
             if idx >= len(current):
                 self._log(
-                    f"[WARNING] {section_name} card #{idx + 1} disappeared between "
-                    f"snapshot and click; skipping."
+                    f"[WARNING] {section_name} 卡片 #{idx + 1} 在快照和点击之间消失；已跳过。"
                 )
                 continue
             target_card = current[idx]
@@ -250,9 +249,9 @@ class DailySet:
             title = self.cards.get_title(target_card)
             label = title or f"#{idx + 1}"
             if title:
-                self._log(f"  → {section_name} #{idx + 1}: {title}")
+                self._log(f"  → {section_name} #{idx + 1}：{title}")
             else:
-                self._log(f"  → {section_name} #{idx + 1}: clicking…")
+                self._log(f"  → {section_name} #{idx + 1}：正在点击…")
 
             self.cards.click(
                 target_card, human, main_tab, label=label, stop_event=stop_event
@@ -279,8 +278,8 @@ class DailySet:
         ]
         if not final_cards:
             self._log(
-                f"[WARNING] {section_name} cards vanished after run; "
-                f"assuming attempted."
+                f"[WARNING] {section_name} 卡片在运行后消失；"
+                f"假定已尝试。"
             )
             return {
                 "already": already_complete,
@@ -303,8 +302,8 @@ class DailySet:
         newly_completed = max(0, final_complete - already_complete)
 
         self._log(
-            f"{section_name} result: {final_complete}/{final_actionable} complete "
-            f"(+{newly_completed} this run)."
+            f"{section_name} 结果：{final_complete}/{final_actionable} 已完成 "
+            f"（本次运行 +{newly_completed}）。"
         )
 
         return {
@@ -339,7 +338,7 @@ class DailySet:
                   failure: broken selectors, login redirect, anti-bot), so
                   the next run can retry.
         """
-        self._log("Performing daily Rewards tasks")
+        self._log("正在执行每日 Rewards 任务")
 
         try:
             driver.get("https://rewards.bing.com")
@@ -352,7 +351,7 @@ class DailySet:
                     )
                 )
             except TimeoutException:
-                self._log("[WARNING] Rewards cards never appeared on the page.")
+                self._log("[WARNING] Rewards 卡片从未出现在页面上。")
                 return False
 
             # Brief settle for SPA hydration after the cards mount.
@@ -372,7 +371,7 @@ class DailySet:
             totals = {"already": 0, "newly": 0, "final": 0, "total": 0, "attempted": 0}
             for section_name, selector in SECTIONS:
                 if stop_event is not None and stop_event.is_set():
-                    self._log("Stop requested — skipping remaining sections.")
+                    self._log("已请求停止 — 跳过剩余区域。")
                     break
                 section_result = self._process_section(
                     driver,
@@ -386,12 +385,12 @@ class DailySet:
                     totals[k] += section_result[k]
 
             if totals["total"] == 0:
-                self._log("[WARNING] No Rewards cards found across any section.")
+                self._log("[WARNING] 未在任何区域找到 Rewards 卡片。")
                 return False
 
             self._log(
-                f"All sections: {totals['final']}/{totals['total']} complete "
-                f"(+{totals['newly']} this run)."
+                f"全部区域：{totals['final']}/{totals['total']} 已完成 "
+                f"（本次运行 +{totals['newly']}）。"
             )
 
             if totals["final"] == totals["total"]:
@@ -399,9 +398,9 @@ class DailySet:
 
             if totals["newly"] > 0:
                 self._log(
-                    "[INFO] Some Rewards cards still incomplete after run "
-                    "(likely quizzes / polls that need manual answers). "
-                    "Marking today done to avoid retries."
+                    "[INFO] 运行后部分 Rewards 卡片仍未完成"
+                    "（可能是需要手动回答的测验/投票）。"
+                    "标记为今日已完成以避免重试。"
                 )
                 return True
 
@@ -410,8 +409,8 @@ class DailySet:
                 return True
 
             self._log(
-                "[WARNING] No Rewards cards were completed this run. "
-                "Will retry on next run."
+                "[WARNING] 此次运行未完成任何 Rewards 卡片。"
+                "将在下次运行时重试。"
             )
             return False
 
@@ -419,7 +418,7 @@ class DailySet:
             if stop_event is not None and stop_event.is_set():
                 # Stop in flight: driver was force-quit, the WebDriver call
                 # that raised this is collateral. Log neutrally and return.
-                self._log("Rewards tasks halted by Stop.")
+                self._log("Rewards 任务已被停止。")
                 return False
-            self._log(f"[ERROR] Failed to collect Rewards tasks: {e}")
+            self._log(f"[ERROR] 执行 Rewards 任务失败：{e}")
             return False

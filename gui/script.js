@@ -28,7 +28,7 @@ function show_toast(message, type, opts) {
   toast.innerHTML =
     TOAST_ICONS[kind] +
     '<div class="toast-msg"></div>' +
-    '<button class="toast-close" aria-label="Dismiss">&times;</button>';
+    '<button class="toast-close" aria-label="关闭">&times;</button>';
 
   toast.querySelector('.toast-msg').textContent = message;
 
@@ -65,8 +65,8 @@ function open_modal(opts) {
   input.value = opts.inputDefault || '';
   input.placeholder = opts.inputPlaceholder || '';
 
-  confirmBtn.textContent = opts.confirmLabel || 'OK';
-  cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+  confirmBtn.textContent = opts.confirmLabel || '确定';
+  cancelBtn.textContent = opts.cancelLabel || '取消';
   cancelBtn.hidden = Boolean(opts.hideCancel);
   confirmBtn.className = 'btn-primary' + (opts.danger ? ' danger' : '');
 
@@ -93,7 +93,7 @@ function prompt_modal(title, message, inputDefault, opts) {
     withInput: true,
     inputDefault: inputDefault || '',
     inputPlaceholder: (opts && opts.placeholder) || '',
-    confirmLabel: (opts && opts.confirmLabel) || 'OK',
+    confirmLabel: (opts && opts.confirmLabel) || '确定',
   });
 }
 
@@ -145,11 +145,11 @@ function parse_proxy_url(raw) {
 }
 
 function format_proxy_summary(proxy) {
-  if (!proxy || !proxy.enabled) return 'Proxy off';
+  if (!proxy || !proxy.enabled) return '代理关闭';
   const scheme = proxy.scheme === 'https' ? 'https' : 'http';
   const host = proxy.host || '';
   const port = proxy.port || '';
-  return host && port ? `Proxy ${scheme}://${host}:${port}` : 'Proxy on';
+  return host && port ? `代理 ${scheme}://${host}:${port}` : '代理已开启';
 }
 
 function confirm_modal(title, message, opts) {
@@ -157,7 +157,7 @@ function confirm_modal(title, message, opts) {
     title: title,
     message: message || '',
     withInput: false,
-    confirmLabel: (opts && opts.confirmLabel) || 'Confirm',
+    confirmLabel: (opts && opts.confirmLabel) || '确认',
     danger: Boolean(opts && opts.danger),
   });
 }
@@ -214,7 +214,7 @@ function detect_log_severity(msg) {
   const s = String(msg);
   if (/\[ERROR\]/i.test(s)) return 'error';
   if (/\[WARNING\]/i.test(s)) return 'warning';
-  if (/completed|success|done!|ready/i.test(s)) return 'success';
+  if (/completed|success|done!|ready|完成|成功|就绪/i.test(s)) return 'success';
   return '';
 }
 
@@ -281,13 +281,13 @@ function update_log_once(message) {
 
 function start_bot() {
   if (!currentAccountId) {
-    show_toast('Add an account first.', 'warning');
+    show_toast('请先添加一个账户。', 'warning');
     return;
   }
 
   const current = accountsCache.find(a => a.id === currentAccountId);
   if (!current || !current.first_setup_done) {
-    show_toast('Finish the setup for this account before starting.', 'warning');
+    show_toast('请先完成此账户的设置。', 'warning');
     return;
   }
 
@@ -302,15 +302,15 @@ function start_bot() {
     const pcValid = !isNaN(pc) && pc >= 0 && pc <= 130;
     const mobileValid = !isNaN(mobile) && mobile >= 0 && mobile <= 99;
     if (!pcValid) {
-      show_toast('PC must be between 0 and 130.', 'warning');
+      show_toast('PC 查询数必须在 0 到 130 之间。', 'warning');
       return;
     }
     if (!mobileValid) {
-      show_toast('Mobile must be between 0 and 99.', 'warning');
+      show_toast('移动查询数必须在 0 到 99 之间。', 'warning');
       return;
     }
     if (pc + mobile === 0) {
-      show_toast('Set at least one of PC or Mobile above 0.', 'warning');
+      show_toast('请至少设置 PC 或移动查询数大于 0。', 'warning');
       return;
     }
   }
@@ -318,7 +318,7 @@ function start_bot() {
   const btn = document.getElementById('start_btn');
   btn.disabled = true;
   const label = btn.querySelector('.btn-label');
-  if (label) label.textContent = 'Running…';
+  if (label) label.textContent = '运行中…';
 
   const stopBtn = document.getElementById('stop_btn');
   if (stopBtn) stopBtn.disabled = false;
@@ -374,7 +374,7 @@ document.addEventListener('DOMContentLoaded', function () {
 function enable_start_button() {
   const btn = document.getElementById('start_btn');
   const label = btn.querySelector('.btn-label');
-  if (label) label.textContent = 'Start run';
+  if (label) label.textContent = '开始运行';
   const current = accountsCache.find(a => a.id === currentAccountId);
   btn.disabled = !(current && current.first_setup_done);
 
@@ -383,7 +383,7 @@ function enable_start_button() {
   if (stopBtn) {
     stopBtn.disabled = true;
     const stopLabel = stopBtn.querySelector('.stop-label');
-    if (stopLabel) stopLabel.textContent = 'Stop';
+    if (stopLabel) stopLabel.textContent = '停止';
   }
   update_status_indicator();
 }
@@ -394,7 +394,7 @@ function stop_bot() {
   if (stopBtn) {
     stopBtn.disabled = true;
     const stopLabel = stopBtn.querySelector('.stop-label');
-    if (stopLabel) stopLabel.textContent = 'Stopping…';
+    if (stopLabel) stopLabel.textContent = '正在停止…';
   }
   pywebview.api.stop().catch(err => console.error('stop failed:', err));
 }
@@ -419,19 +419,19 @@ function update_status_indicator(forceState) {
   switch (state) {
     case 'executing':
       dot.classList.add('active');
-      text.textContent = 'Running…';
+      text.textContent = '运行中…';
       break;
     case 'ready':
       dot.classList.add('ready');
-      text.textContent = 'Ready';
+      text.textContent = '就绪';
       break;
     case 'setup':
       dot.classList.add('warning');
-      text.textContent = 'Setup needed';
+      text.textContent = '需要设置';
       break;
     case 'empty':
     default:
-      text.textContent = 'No account selected';
+      text.textContent = '未选择账户';
       break;
   }
 }
@@ -478,7 +478,7 @@ function render_account_menu() {
   if (accountsCache.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'accounts-empty';
-    empty.textContent = 'No accounts yet';
+    empty.textContent = '暂无账户';
     menu.appendChild(empty);
   } else {
     for (const acc of accountsCache) {
@@ -496,7 +496,7 @@ function render_account_menu() {
       name.textContent = acc.label;
       const meta = document.createElement('span');
       meta.className = 'account-option-meta';
-      meta.textContent = acc.first_setup_done ? 'Ready' : 'Setup pending';
+      meta.textContent = acc.first_setup_done ? '就绪' : '待设置';
       info.appendChild(name);
       info.appendChild(meta);
       btn.appendChild(info);
@@ -518,7 +518,7 @@ function render_account_menu() {
         toggle_account_menu(false);
         if (acc.id !== currentAccountId) {
           pywebview.api.switch_account(acc.id).then(ok => {
-            if (!ok) show_toast('Could not switch account. Is the bot running?', 'warning');
+            if (!ok) show_toast('无法切换账户。机器人是否正在运行？', 'warning');
           });
         }
       });
@@ -539,7 +539,7 @@ function render_account_menu() {
   addBtn.className = 'menu-action';
   addBtn.innerHTML =
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
-    '<span>Add account</span>';
+    '<span>添加账户</span>';
   addBtn.addEventListener('click', () => {
     toggle_account_menu(false);
     prompt_and_create_account();
@@ -553,7 +553,7 @@ function render_account_menu() {
     manageBtn.style.color = 'var(--text-muted)';
     manageBtn.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>' +
-      '<span>Manage accounts…</span>';
+      '<span>管理账户…</span>';
     manageBtn.addEventListener('click', () => {
       toggle_account_menu(false);
       open_accounts_modal();
@@ -575,13 +575,13 @@ function render_account_trigger() {
     avatarEl.textContent = avatar_initials(current.label);
     avatarEl.style.backgroundColor = avatar_color(current.id);
     labelEl.textContent = current.label;
-    metaEl.textContent = current.first_setup_done ? 'Ready to run' : 'Setup pending';
+    metaEl.textContent = current.first_setup_done ? '就绪可运行' : '待设置';
     trigger.disabled = false;
   } else {
     avatarEl.textContent = '+';
     avatarEl.style.backgroundColor = 'var(--surface-3)';
-    labelEl.textContent = 'No account yet';
-    metaEl.textContent = accountsCache.length ? 'Select one below' : 'Add your first account';
+    labelEl.textContent = '暂无账户';
+    metaEl.textContent = accountsCache.length ? '请从下方选择一个' : '添加您的第一个账户';
     trigger.disabled = accountsCache.length === 0 && false; // keep clickable to open menu
   }
 }
@@ -591,45 +591,45 @@ function render_account_trigger() {
 // =========================================================================
 
 async function prompt_and_create_account() {
-  const defaultLabel = `Account ${accountsCache.length + 1}`;
+  const defaultLabel = `账户 ${accountsCache.length + 1}`;
   const label = await prompt_modal(
-    'Add a new account',
-    'Give this account a name — you can rename it later.',
+    '添加新账户',
+    '为此账户命名 — 您可以之后重命名。',
     defaultLabel,
-    { placeholder: defaultLabel, confirmLabel: 'Continue' }
+    { placeholder: defaultLabel, confirmLabel: '继续' }
   );
   if (label === null) return;
   const trimmed = String(label).trim() || defaultLabel;
 
   const proxyText = await prompt_modal(
-    'Account proxy',
-    'Optional. Enter http://user:pass@host:port or leave blank for no proxy.',
+    '账户代理',
+    '可选。输入 http://user:pass@host:port 或留空以不使用代理。',
     '',
-    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: 'Create' }
+    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: '创建' }
   );
   if (proxyText === null) return;
 
   const proxyConfig = parse_proxy_url(proxyText);
   if (!proxyConfig) {
-    show_toast('Proxy must be HTTP/HTTPS with a valid host and port.', 'warning');
+    show_toast('代理必须为 HTTP/HTTPS 且包含有效的主机和端口。', 'warning');
     return;
   }
 
-  show_toast(`Opening browser for "${trimmed}". Log in, then close the window.`, 'info', { duration: 6000 });
+  show_toast(`正在为 "${trimmed}" 打开浏览器。登录后请关闭窗口。`, 'info', { duration: 6000 });
 
   pywebview.api.create_account(trimmed, proxyConfig).then(result => {
     if (!result || !result.ok) {
       if (result && result.error === 'bot_running') {
-        show_toast('Cannot add an account while the bot is running.', 'warning');
+        show_toast('机器人运行时无法添加账户。', 'warning');
       } else if (result && result.error === 'invalid_proxy') {
-        show_toast('Proxy settings are invalid — account not created.', 'warning');
+        show_toast('代理设置无效 — 账户未创建。', 'warning');
       } else if (result && result.error === 'setup_failed') {
-        show_toast('Setup cancelled — account not created.', 'warning');
+        show_toast('设置已取消 — 账户未创建。', 'warning');
       } else {
-        show_toast('Could not create account.', 'error');
+        show_toast('无法创建账户。', 'error');
       }
     } else {
-      show_toast(`Account "${result.label}" is ready.`, 'success');
+      show_toast(`账户 "${result.label}" 已就绪。`, 'success');
     }
     refresh_account_ui();
   });
@@ -676,11 +676,11 @@ function open_settings_modal() {
     if (startup && !startup.supported) {
       startupRow.classList.add('row-disabled');
       startupToggle.disabled = true;
-      startupHint.textContent = 'Available on Windows and Linux only.';
+      startupHint.textContent = '仅在 Windows 和 Linux 上可用。';
     } else {
       startupRow.classList.remove('row-disabled');
       startupToggle.disabled = false;
-      startupHint.textContent = "Automatically run AutoRewarder in the background at each account's scheduled time.";
+      startupHint.textContent = "在每个账户的预定时间自动在后台运行 AutoRewarder。";
     }
 
     // Close-to-tray toggle — default to true if the API failed.
@@ -690,7 +690,7 @@ function open_settings_modal() {
     }
   }).catch(err => {
     console.error('Failed to load settings:', err);
-    show_toast('Could not load settings.', 'error');
+    show_toast('无法加载设置。', 'error');
   });
 
   backdrop.hidden = false;
@@ -723,9 +723,9 @@ function render_schedule_cards(schedules) {
 }
 
 function format_schedule_summary(item, sched, enabled) {
-  const prefix = item.first_setup_done ? '' : 'Setup pending · ';
-  const proxySuffix = item.proxy && item.proxy.enabled ? ' · Proxy on' : '';
-  if (!enabled) return prefix + 'Schedule off';
+  const prefix = item.first_setup_done ? '' : '待设置 · ';
+  const proxySuffix = item.proxy && item.proxy.enabled ? ' · 代理已开' : '';
+  if (!enabled) return prefix + '计划关闭';
   const pc = sched.queries_pc != null ? sched.queries_pc : 30;
   const mobile = sched.queries_mobile != null ? sched.queries_mobile : 20;
   const time = (sched.run_time && /^\d{2}:\d{2}$/.test(sched.run_time)) ? sched.run_time : '09:00';
@@ -786,12 +786,12 @@ function build_schedule_card(item) {
 
   const toggleWrap = document.createElement('label');
   toggleWrap.className = 'toggle-compact';
-  toggleWrap.title = 'Enable schedule';
+  toggleWrap.title = '启用计划';
   const toggleInput = document.createElement('input');
   toggleInput.type = 'checkbox';
   toggleInput.className = 'schedule-enabled';
   toggleInput.checked = Boolean(sched.enabled);
-  toggleInput.setAttribute('aria-label', 'Enable schedule for ' + acc.label);
+  toggleInput.setAttribute('aria-label', '为 ' + acc.label + ' 启用计划');
   const togglePill = document.createElement('span');
   togglePill.className = 'toggle-pill';
   toggleWrap.appendChild(toggleInput);
@@ -815,7 +815,7 @@ function build_schedule_card(item) {
   advPill.className = 'toggle-pill';
   const advLabel = document.createElement('span');
   advLabel.className = 'sched-adv-label';
-  advLabel.textContent = 'Advanced scheduling (drip-feed across duration)';
+  advLabel.textContent = '高级调度（在时间范围内均匀分布）';
   const advWrap = document.createElement('span');
   advWrap.className = 'toggle-compact';
   advWrap.appendChild(advInput);
@@ -829,23 +829,23 @@ function build_schedule_card(item) {
   rowPcMobile.className = 'form-grid-2';
   const pcDefault = sched.queries_pc != null ? sched.queries_pc : 30;
   const mobileDefault = sched.queries_mobile != null ? sched.queries_mobile : 20;
-  rowPcMobile.appendChild(make_form_field('PC queries', 'number', 'schedule-queries-pc', pcDefault, { min: 0, max: 130 }));
-  rowPcMobile.appendChild(make_form_field('Mobile queries', 'number', 'schedule-queries-mobile', mobileDefault, { min: 0, max: 99 }));
+  rowPcMobile.appendChild(make_form_field('PC 查询数', 'number', 'schedule-queries-pc', pcDefault, { min: 0, max: 130 }));
+  rowPcMobile.appendChild(make_form_field('移动查询数', 'number', 'schedule-queries-mobile', mobileDefault, { min: 0, max: 99 }));
   body.appendChild(rowPcMobile);
 
   // Daily fire time row — when the OS-level scheduled task triggers for
   // this account. Only effective when the global Start-with-Windows
   // toggle is on AND this account's schedule is enabled.
   const timeDefault = (sched.run_time && /^\d{2}:\d{2}$/.test(sched.run_time)) ? sched.run_time : '09:00';
-  body.appendChild(make_form_field('Daily run time', 'time', 'schedule-run-time', timeDefault, {}));
+  body.appendChild(make_form_field('每日运行时间', 'time', 'schedule-run-time', timeDefault, {}));
 
   // Duration + qph row (only meaningful when advancedScheduling is on).
   const rowAdv = document.createElement('div');
   rowAdv.className = 'form-grid-2 sched-adv-fields';
   const durDefault = sched.runDuration != null ? sched.runDuration : 3;
   const qphDefault = sched.queriesPerHour != null ? sched.queriesPerHour : 10;
-  rowAdv.appendChild(make_form_field('Run duration (h)', 'number', 'schedule-run-duration', durDefault, { min: 1, max: 24 }));
-  rowAdv.appendChild(make_form_field('Queries / hour', 'number', 'schedule-queries-per-hour', qphDefault, { min: 1, max: 99 }));
+  rowAdv.appendChild(make_form_field('运行时长（小时）', 'number', 'schedule-run-duration', durDefault, { min: 1, max: 24 }));
+  rowAdv.appendChild(make_form_field('查询数/小时', 'number', 'schedule-queries-per-hour', qphDefault, { min: 1, max: 99 }));
   if (!advInput.checked) rowAdv.classList.add('dim');
   body.appendChild(rowAdv);
 
@@ -863,7 +863,7 @@ function build_schedule_card(item) {
   proxyPill.className = 'toggle-pill';
   const proxyLabel = document.createElement('span');
   proxyLabel.className = 'sched-adv-label';
-  proxyLabel.textContent = 'Use proxy for this account';
+  proxyLabel.textContent = '为此账户使用代理';
   const proxyWrap = document.createElement('span');
   proxyWrap.className = 'toggle-compact';
   proxyWrap.appendChild(proxyInput);
@@ -878,19 +878,19 @@ function build_schedule_card(item) {
 
   const proxyMainRow = document.createElement('div');
   proxyMainRow.className = 'form-grid-2';
-  proxyMainRow.appendChild(make_select_field('Proxy type', 'proxy-scheme', proxy.scheme || 'http', [
+  proxyMainRow.appendChild(make_select_field('代理类型', 'proxy-scheme', proxy.scheme || 'http', [
     { value: 'http', label: 'HTTP' },
     { value: 'https', label: 'HTTPS' },
   ]));
-  proxyMainRow.appendChild(make_form_field('Port', 'number', 'proxy-port', proxy.port || '', { min: 1, max: 65535 }));
+  proxyMainRow.appendChild(make_form_field('端口', 'number', 'proxy-port', proxy.port || '', { min: 1, max: 65535 }));
   proxyFields.appendChild(proxyMainRow);
 
-  proxyFields.appendChild(make_form_field('Host', 'text', 'proxy-host', proxy.host || '', {}));
+  proxyFields.appendChild(make_form_field('主机', 'text', 'proxy-host', proxy.host || '', {}));
 
   const proxyAuthRow = document.createElement('div');
   proxyAuthRow.className = 'form-grid-2';
-  proxyAuthRow.appendChild(make_form_field('Username', 'text', 'proxy-username', proxy.username || '', {}));
-  proxyAuthRow.appendChild(make_form_field('Password', 'password', 'proxy-password', proxy.password || '', {}));
+  proxyAuthRow.appendChild(make_form_field('用户名', 'text', 'proxy-username', proxy.username || '', {}));
+  proxyAuthRow.appendChild(make_form_field('密码', 'password', 'proxy-password', proxy.password || '', {}));
   proxyFields.appendChild(proxyAuthRow);
   body.appendChild(proxyFields);
 
@@ -1039,28 +1039,28 @@ async function save_settings() {
 
     if (enabled) {
       if (isNaN(pc) || pc < 0 || pc > 130) {
-        show_toast('PC queries must be between 0 and 130.', 'warning');
+        show_toast('PC 查询数必须在 0 到 130 之间。', 'warning');
         return;
       }
       if (isNaN(mobile) || mobile < 0 || mobile > 99) {
-        show_toast('Mobile queries must be between 0 and 99.', 'warning');
+        show_toast('移动查询数必须在 0 到 99 之间。', 'warning');
         return;
       }
       if ((pc || 0) + (mobile || 0) === 0) {
-        show_toast('Set at least one of PC or Mobile queries above 0.', 'warning');
+        show_toast('请至少设置 PC 或移动查询数大于 0。', 'warning');
         return;
       }
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(runTime || '')) {
-        show_toast('Daily run time must be a valid HH:MM value.', 'warning');
+        show_toast('每日运行时间必须为有效的 HH:MM 格式。', 'warning');
         return;
       }
       if (advancedScheduling) {
         if (isNaN(runDuration) || runDuration < 1 || runDuration > 24) {
-          show_toast('Run duration must be between 1 and 24 hours.', 'warning');
+          show_toast('运行时长必须在 1 到 24 小时之间。', 'warning');
           return;
         }
         if (isNaN(queriesPerHour) || queriesPerHour < 1 || queriesPerHour > 99) {
-          show_toast('Queries per hour must be between 1 and 99.', 'warning');
+          show_toast('每小时查询数必须在 1 到 99 之间。', 'warning');
           return;
         }
       }
@@ -1068,11 +1068,11 @@ async function save_settings() {
 
     if (proxyPayload.enabled) {
       if (!proxyPayload.host) {
-        show_toast('Proxy host is required when proxy is enabled.', 'warning');
+        show_toast('启用代理时，代理主机为必填项。', 'warning');
         return;
       }
       if (!proxyPayload.port || proxyPayload.port < 1 || proxyPayload.port > 65535) {
-        show_toast('Proxy port must be between 1 and 65535.', 'warning');
+        show_toast('代理端口必须在 1 到 65535 之间。', 'warning');
         return;
       }
     }
@@ -1118,22 +1118,22 @@ async function save_settings() {
     const proxyFailures = proxyResults.filter(ok => !ok).length;
 
     if (failures > 0) {
-      show_toast(`${failures} schedule${failures > 1 ? 's' : ''} failed to save.`, 'error');
+      show_toast(`${failures} 个计划保存失败。`, 'error');
       return;
     }
     if (proxyFailures > 0) {
-      show_toast(`${proxyFailures} prox${proxyFailures > 1 ? 'ies' : 'y'} failed to save.`, 'error');
+      show_toast(`${proxyFailures} 个代理保存失败。`, 'error');
       return;
     }
     if (!startupOk && startupInfo && startupInfo.supported) {
-      show_toast('Schedules saved, but startup setting failed.', 'warning');
+      show_toast('计划已保存，但开机启动设置失败。', 'warning');
     } else {
-      show_toast('Settings saved.', 'success');
+      show_toast('设置已保存。', 'success');
     }
     close_settings_modal();
   } catch (err) {
     console.error('save_settings failed:', err);
-    show_toast('Save failed.', 'error');
+    show_toast('保存失败。', 'error');
   }
 }
 
@@ -1167,9 +1167,9 @@ function refresh_account_ui() {
     const current = accountsCache.find(a => a.id === currentAccountId);
     const shouldEnable = Boolean(current && current.first_setup_done);
     const label = startBtn.querySelector('.btn-label');
-    if (!label || label.textContent === 'Start run' || label.textContent === 'Loading…') {
+    if (!label || label.textContent === '开始运行' || label.textContent === '加载中…') {
       startBtn.disabled = !shouldEnable;
-      if (label) label.textContent = 'Start run';
+      if (label) label.textContent = '开始运行';
     }
 
     update_status_indicator();
@@ -1199,7 +1199,7 @@ function start_loader() {
         const loader = document.createElement('div');
         loader.id = 'inline_loader';
         loader.className = 'loader-line';
-        loader.innerHTML = '<span class="spinner"></span><span>Preparing the browser driver…</span>';
+        loader.innerHTML = '<span class="spinner"></span><span>正在准备浏览器驱动…</span>';
         logDiv.appendChild(loader);
         logDiv.scrollTop = logDiv.scrollHeight;
       }
@@ -1225,9 +1225,9 @@ function stop_loader() {
   if (startBtn) {
     const label = startBtn.querySelector('.btn-label');
     const txt = label ? label.textContent : startBtn.textContent;
-    if (txt === 'Start run' || txt === 'Loading…') {
+    if (txt === '开始运行' || txt === '加载中…') {
       startBtn.disabled = !(current && current.first_setup_done);
-      if (label) label.textContent = 'Start run';
+      if (label) label.textContent = '开始运行';
     }
   }
   update_status_indicator();

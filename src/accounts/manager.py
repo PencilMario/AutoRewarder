@@ -166,7 +166,7 @@ class AccountManager:
             }
         )
         self._write_index(accounts)
-        self._log(f"Created account '{label}' ({aid})")
+        self._log(f"已创建账户 '{label}' ({aid})")
         return {"id": aid, "label": label, "first_setup_done": False}
 
     def select(self, account_id):
@@ -177,7 +177,7 @@ class AccountManager:
             ValueError: If the account_id is not found in the index.
         """
         if account_id is not None and not self.exists(account_id):
-            raise ValueError(f"Account not found: {account_id}")
+            raise ValueError(f"未找到账户：{account_id}")
         self._global.set_current_account_id(account_id)
 
     def rename(self, account_id, new_label):
@@ -192,7 +192,7 @@ class AccountManager:
         """
         new_label = (new_label or "").strip()
         if not new_label:
-            raise ValueError("Label must not be empty")
+            raise ValueError("标签不能为空")
         accounts = self._read_index()
         found = False
         for acc in accounts:
@@ -201,9 +201,9 @@ class AccountManager:
                 found = True
                 break
         if not found:
-            raise ValueError(f"Account not found: {account_id}")
+            raise ValueError(f"未找到账户：{account_id}")
         self._write_index(accounts)
-        self._log(f"Renamed account {account_id} to '{new_label}'")
+        self._log(f"已重命名账户 {account_id} 为 '{new_label}'")
 
     def delete(self, account_id):
         """
@@ -212,7 +212,7 @@ class AccountManager:
         Returns the next account_id that should become current (first remaining) or None.
         """
         if not self.exists(account_id):
-            raise ValueError(f"Account not found: {account_id}")
+            raise ValueError(f"未找到账户：{account_id}")
 
         accounts = [acc for acc in self._read_index() if acc.get("id") != account_id]
         self._write_index(accounts)
@@ -222,9 +222,9 @@ class AccountManager:
             try:
                 shutil.rmtree(target_dir)
             except OSError as e:
-                self._log(f"[WARNING] Could not fully remove {target_dir}: {e}")
+                self._log(f"[WARNING] 无法完全删除 {target_dir}：{e}")
 
-        self._log(f"Deleted account {account_id}")
+        self._log(f"已删除账户 {account_id}")
 
         if self.current_id() == account_id:
             next_id = accounts[0]["id"] if accounts else None
@@ -317,11 +317,11 @@ class AccountManager:
             )
             self._global.set_current_account_id(aid)
 
-            self._log("Migrated legacy single-account files into 'Default' account.")
+            self._log("已将旧版单账户文件迁移到 'Default' 账户。")
             return aid
 
         except OSError as e:
-            self._log(f"[ERROR] Legacy migration failed: {e}")
+            self._log(f"[ERROR] 旧版迁移失败：{e}")
             # Best-effort rollback: remove the partially-created account dir.
             try:
                 if os.path.exists(target):

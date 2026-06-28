@@ -71,15 +71,15 @@ class SearchEngine:
 
                 if len(all_queries) < num_needed:
                     self._log(
-                        f"[WARNING] In the JSON file, there are only {len(all_queries)} queries available, but {num_needed} are needed."
+                        f"[WARNING] JSON 文件中仅有 {len(all_queries)} 条查询可用，但需要 {num_needed} 条。"
                     )
                     return all_queries
 
                 return random.sample(all_queries, num_needed)
 
         except FileNotFoundError:
-            self._log(f"[ERROR] File {filepath} not found!")
-            self._add_to_history("N/A", f"[ERROR] File {filepath} not found")
+            self._log(f"[ERROR] 文件 {filepath} 未找到！")
+            self._add_to_history("N/A", f"[ERROR] 文件 {filepath} 未找到")
             return []
 
     def get_coffee_break_count(self):
@@ -116,12 +116,12 @@ class SearchEngine:
         next_coffee_break = self.get_coffee_break_count()
         searches_since_break = 0
 
-        self._log(f"Loaded {len(queries)} queries. Starting searches...")
-        self._log(f"Next coffee break after {next_coffee_break} searches.")
+        self._log(f"已加载 {len(queries)} 条查询。开始搜索...")
+        self._log(f"将在 {next_coffee_break} 次搜索后休息。")
 
         for i, query in enumerate(queries):
             if stop_event is not None and stop_event.is_set():
-                self._log("Stop requested — halting search loop.")
+                self._log("已请求停止 — 正在终止搜索循环。")
                 return
 
             try:
@@ -136,32 +136,32 @@ class SearchEngine:
 
                     if next_coffee_break > 9:
                         pause_duration = random.uniform(45, 90)
-                        self._log("Taking a big coffee break...")
+                        self._log("休息一下（长时间）...")
                     else:
                         pause_duration = random.uniform(15, 30)
-                        self._log("Taking a quick coffee break...")
+                        self._log("休息一下（短时间）...")
 
                     self._log(
-                        f"Sleeping for {pause_duration:.2f} seconds to mimic a coffee break."
+                        f"休息 {pause_duration:.2f} 秒以模拟真人操作间隔。"
                     )
                     # Interruptible sleep: Event.wait returns True early if Stop is pressed.
                     if stop_event is not None:
                         if stop_event.wait(pause_duration):
-                            self._log("Stop requested during coffee break — halting.")
+                            self._log("休息期间收到停止请求 — 正在终止。")
                             return
                     else:
                         time.sleep(pause_duration)
 
                     next_coffee_break = self.get_coffee_break_count()
                     searches_since_break = 0
-                    self._log(f"Next coffee break after {next_coffee_break} searches.")
+                    self._log(f"将在 {next_coffee_break} 次搜索后再次休息。")
 
                 # Find the search box, clear it
                 search_box = driver.find_element(By.NAME, "q")
                 search_box.clear()
 
                 # Log the search query in log area
-                self._log(f"Search #{i + 1}: {query}")
+                self._log(f"搜索 #{i + 1}：{query}")
 
                 # Type the query with human-like delays
                 human_typing(search_box, query)
@@ -181,7 +181,7 @@ class SearchEngine:
                 chosen_tab = random.choices(tabs_config, weights=weights, k=1)[0]
 
                 if chosen_tab["name"] != "All":
-                    self._log(f"Chosen behavior: Switch to {chosen_tab['name']}")
+                    self._log(f"选择行为：切换到 {chosen_tab['name']}")
                     try:
                         # Find the tab element using its id
                         xpath = f"//li[@id='{chosen_tab['id']}']//a"
@@ -193,7 +193,7 @@ class SearchEngine:
 
                     except NoSuchElementException:
                         self._log(
-                            f"[WARNING] Tab {chosen_tab['name']} not found. Staying on 'All'."
+                            f'[WARNING] 找不到 {chosen_tab["name"]} 标签页。停留在「全部」页面。'
                         )
 
                         # Fallback to "All" if the chosen tab is not found
@@ -202,9 +202,9 @@ class SearchEngine:
                     except WebDriverException as e:
                         short_error = str(e).split("\n")[0][:28]
                         self._log(
-                            f"[WARNING] WebDriver error when switching to {chosen_tab['name']}: {short_error}."
+                            f"[WARNING] 切换到 {chosen_tab['name']} 时 WebDriver 出错：{short_error}。"
                         )
-                        self._log("Staying on 'All'.")
+                        self._log('停留在「全部」页面。')
 
                         chosen_tab["name"] = "All"
 
@@ -215,30 +215,30 @@ class SearchEngine:
                 except WebDriverException as e:
                     short_error = str(e).split("\n")[0][:28]
                     self._log(
-                        f"[WARNING] WebDriver error when scrolling: {short_error}. Continuing."
+                        f"[WARNING] 滚动页面时 WebDriver 出错：{short_error}。继续执行。"
                     )
 
                 # Pause after scrolling
                 time.sleep(random.uniform(2, 4))
 
                 # Add to history.json
-                self._add_to_history(query, "Success")
+                self._add_to_history(query, "成功")
 
             except NoSuchElementException:
                 if stop_event is not None and stop_event.is_set():
                     return
-                self._log(f"[ERROR] Search box not found on attempt #{i+1}")
-                self._add_to_history(query, "[ERROR] Search box not found")
+                self._log(f"[ERROR] 第 #{i+1} 次尝试未找到搜索框")
+                self._add_to_history(query, "[ERROR] 搜索框未找到")
 
             except WebDriverException as e:
                 if stop_event is not None and stop_event.is_set():
                     return
                 short_error = str(e).split("\n")[0][:28]
-                self._log(f"[ERROR] WebDriver error on attempt #{i+1}: {short_error}")
-                self._add_to_history(query, f"[ERROR] WebDriver Error: {short_error}")
+                self._log(f"[ERROR] 第 #{i+1} 次尝试时 WebDriver 出错：{short_error}")
+                self._add_to_history(query, f"[ERROR] WebDriver 错误：{short_error}")
 
             except Exception as e:
                 if stop_event is not None and stop_event.is_set():
                     return
-                self._log(f"[ERROR] Unknown error on attempt #{i+1}: {e}")
-                self._add_to_history(query, f"[ERROR] Unknown Error: {str(e)[:50]}")
+                self._log(f"[ERROR] 第 #{i+1} 次尝试时未知错误：{e}")
+                self._add_to_history(query, f"[ERROR] 未知错误：{str(e)[:50]}")

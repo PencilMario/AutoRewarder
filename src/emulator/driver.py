@@ -61,8 +61,8 @@ class DriverManager:
         """
         if not self.profile_path:
             raise RuntimeError(
-                "No account selected: cannot start the browser. "
-                "Create or select an account first."
+                "未选择账户：无法启动浏览器。"
+                "请先创建或选择一个账户。"
             )
 
         if headless is None:
@@ -107,7 +107,7 @@ class DriverManager:
                 local_proxy_url = self._proxy_adapter.start()
             except Exception as exc:
                 self.stop_proxy()
-                raise RuntimeError(f"Could not start account proxy: {exc}") from exc
+                raise RuntimeError(f"无法启动账户代理：{exc}") from exc
             options.add_argument(f"--proxy-server={local_proxy_url}")
             options.add_argument("--disable-quic")
 

@@ -31,7 +31,7 @@ elif PLATFORM_NAME == "Windows":
 
 # Quit on invalid platform
 else:
-    raise OSError(f"Unsupported platform: {PLATFORM_NAME}")
+    raise OSError(f"不支持的操作系统：{PLATFORM_NAME}")
 
 # Base paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

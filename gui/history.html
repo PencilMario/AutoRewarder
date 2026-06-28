@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Query History</title>
+  <title>查询历史</title>
 
   <link rel="stylesheet" href="normalize.css">
   <link rel="stylesheet" href="styles.css">
@@ -16,7 +16,7 @@
         <circle cx="12" cy="12" r="10"></circle>
         <polyline points="12 6 12 12 16 14"></polyline>
       </svg>
-      Execution history
+      执行历史
     </h2>
     <span id="account_pill" class="account-pill" hidden></span>
   </div>
@@ -24,15 +24,15 @@
   <table class="history-table">
     <thead>
       <tr>
-        <th class="col-date">Date</th>
-        <th class="col-time">Time</th>
-        <th class="col-query">Query</th>
-        <th class="col-status">Status</th>
+        <th class="col-date">日期</th>
+        <th class="col-time">时间</th>
+        <th class="col-query">查询</th>
+        <th class="col-status">状态</th>
       </tr>
     </thead>
     <tbody id="table_body">
       <tr>
-        <td colspan="4" class="empty-row">Loading…</td>
+        <td colspan="4" class="empty-row">加载中…</td>
       </tr>
     </tbody>
   </table>
@@ -79,7 +79,7 @@
           const td = document.createElement('td');
           td.colSpan = 4;
           td.className = 'empty-row';
-          td.textContent = 'No runs yet. Start one from the main window.';
+          td.textContent = '暂无运行记录。请从主窗口开始一次运行。';
           tr.appendChild(td);
           tbody.appendChild(tr);
           return;

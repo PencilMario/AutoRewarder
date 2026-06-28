@@ -34,15 +34,15 @@ async function configure_account_proxy(acc) {
     const saved = await pywebview.api.get_account_proxy(acc.id);
     current = Object.assign(current, saved || {});
   } catch (_) {
-    show_toast('Could not load proxy settings.', 'error');
+    show_toast('无法加载代理设置。', 'error');
     return;
   }
 
   const proxyText = await prompt_modal(
-    'Proxy settings',
-    `Set proxy for "${acc.label}". Leave blank to disable it.`,
+    '代理设置',
+    `为 "${acc.label}" 设置代理。留空以禁用它。`,
     proxy_url_for_input(current),
-    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: 'Save' }
+    { placeholder: 'http://user:pass@proxy.example.com:8080', confirmLabel: '保存' }
   );
   if (proxyText === null) return;
 
@@ -54,7 +54,7 @@ async function configure_account_proxy(acc) {
 
   pywebview.api.set_account_proxy(acc.id, proxyConfig).then(ok => {
     if (!ok) {
-      show_toast('Proxy settings failed to save.', 'error');
+      show_toast('代理设置保存失败。', 'error');
       return;
     }
     show_toast(format_proxy_summary(proxyConfig), 'success');
@@ -71,7 +71,7 @@ function render_accounts_section(accounts) {
   if (!accounts || accounts.length === 0) {
     const empty = document.createElement('li');
     empty.className = 'accounts-empty';
-    empty.textContent = 'No accounts yet. Click “Add account” to create your first one.';
+    empty.textContent = '暂无账户。点击”添加账户”创建您的第一个账户。';
     list.appendChild(empty);
     return;
   }
@@ -90,8 +90,8 @@ function render_accounts_section(accounts) {
     const meta = document.createElement('div');
     meta.className = 'account-item-meta';
     meta.textContent =
-      (acc.is_current ? 'Current · ' : '') +
-      (acc.first_setup_done ? 'Ready' : 'Setup pending');
+      (acc.is_current ? '当前 · ' : '') +
+      (acc.first_setup_done ? '就绪' : '待设置');
     info.appendChild(name);
     info.appendChild(meta);
     item.appendChild(info);
@@ -101,8 +101,8 @@ function render_accounts_section(accounts) {
 
     const proxyBtn = document.createElement('button');
     proxyBtn.className = 'icon-btn';
-    proxyBtn.title = 'Proxy settings';
-    proxyBtn.setAttribute('aria-label', 'Proxy settings');
+    proxyBtn.title = '代理设置';
+    proxyBtn.setAttribute('aria-label', '代理设置');
     proxyBtn.innerHTML = ACCOUNT_ICONS.proxy;
     proxyBtn.addEventListener('click', () => {
       configure_account_proxy(acc);
@@ -110,52 +110,52 @@ function render_accounts_section(accounts) {
 
     const renameBtn = document.createElement('button');
     renameBtn.className = 'icon-btn';
-    renameBtn.title = 'Rename';
-    renameBtn.setAttribute('aria-label', 'Rename');
+    renameBtn.title = '重命名';
+    renameBtn.setAttribute('aria-label', '重命名');
     renameBtn.innerHTML = ACCOUNT_ICONS.rename;
     renameBtn.addEventListener('click', async () => {
       const newLabel = await prompt_modal(
-        'Rename account',
-        `Enter a new name for "${acc.label}".`,
+        '重命名账户',
+        `为 "${acc.label}" 输入新名称。`,
         acc.label,
-        { confirmLabel: 'Rename' }
+        { confirmLabel: '重命名' }
       );
       if (newLabel === null) return;
       const trimmed = String(newLabel).trim();
       if (!trimmed) return;
       pywebview.api.rename_account(acc.id, trimmed).then(ok => {
-        if (!ok) show_toast('Rename failed.', 'error');
-        else show_toast(`Renamed to "${trimmed}".`, 'success');
+        if (!ok) show_toast('重命名失败。', 'error');
+        else show_toast(`已重命名为 "${trimmed}"。`, 'success');
       });
     });
 
     const resetupBtn = document.createElement('button');
     resetupBtn.className = 'icon-btn';
-    resetupBtn.title = acc.first_setup_done ? 'Re-run setup' : 'Run setup';
+    resetupBtn.title = acc.first_setup_done ? '重新运行设置' : '运行设置';
     resetupBtn.setAttribute('aria-label', resetupBtn.title);
     resetupBtn.innerHTML = ACCOUNT_ICONS.setup;
     resetupBtn.addEventListener('click', () => {
-      show_toast(`Opening browser to set up "${acc.label}"…`, 'info', { duration: 6000 });
+      show_toast(`正在打开浏览器以设置 "${acc.label}"…`, 'info', { duration: 6000 });
       pywebview.api.rerun_setup(acc.id).then(ok => {
-        if (!ok) show_toast('Setup could not be started.', 'error');
+        if (!ok) show_toast('设置无法启动。', 'error');
       });
     });
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'icon-btn danger';
-    deleteBtn.title = 'Delete';
-    deleteBtn.setAttribute('aria-label', 'Delete');
+    deleteBtn.title = '删除';
+    deleteBtn.setAttribute('aria-label', '删除');
     deleteBtn.innerHTML = ACCOUNT_ICONS.trash;
     deleteBtn.addEventListener('click', async () => {
       const confirmed = await confirm_modal(
-        `Delete "${acc.label}"?`,
-        'This removes its browser profile, history, and daily-set status. This cannot be undone.',
-        { confirmLabel: 'Delete', danger: true }
+        `删除 "${acc.label}"？`,
+        '这将删除其浏览器配置文件、历史和每日任务状态。此操作无法撤销。',
+        { confirmLabel: '删除', danger: true }
       );
       if (!confirmed) return;
       pywebview.api.delete_account(acc.id).then(success => {
-        if (!success) show_toast('Delete failed.', 'error');
-        else show_toast(`"${acc.label}" deleted.`, 'success');
+        if (!success) show_toast('删除失败。', 'error');
+        else show_toast(`"${acc.label}" 已删除。`, 'success');
       });
     });
 

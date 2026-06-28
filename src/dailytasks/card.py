@@ -244,7 +244,7 @@ class RewardsCard:
                 return False
             short_error = str(e).split("\n")[0][:160]
             label_str = f" {label}" if label else ""
-            self._log(f"[WARNING] Card{label_str} click failed: {short_error}")
+            self._log(f"[WARNING] 卡片{label_str}点击失败：{short_error}")
 
             # Close any extra tabs, switch back to the main tab.
             try:

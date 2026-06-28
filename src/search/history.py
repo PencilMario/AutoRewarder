@@ -47,7 +47,7 @@ class HistoryManager:
                 return history
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             self._log(
-                "[ERROR] History file was unreadable or damaged. Starting with a fresh one."
+                "[ERROR] 历史文件无法读取或已损坏。将重新创建。"
             )
 
             backup_path = self.history_file + ".backup"
