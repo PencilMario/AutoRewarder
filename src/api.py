@@ -6,6 +6,7 @@ import sys
 import time
 import json
 import math
+import locale
 import random
 import platform
 import subprocess
@@ -59,6 +60,29 @@ def _normalize_run_time(value):
     if isinstance(value, str) and _TIME_RE.match(value.strip()):
         return value.strip()
     return AUTOSTART_TIME
+
+
+def _run_schtasks(args, **kwargs):
+    """
+    Run schtasks with the system's locale encoding, not UTF-8.
+
+    On non-English Windows, schtasks outputs in the active console code page
+    (e.g. GBK on Chinese systems).  ``text=True`` in Python 3.13+ defaults to
+    UTF-8, which crashes with UnicodeDecodeError when those bytes aren't valid
+    UTF-8.  This wrapper forces the system encoding so error messages (and
+    stray non-ASCII output) survive.
+    """
+    get_encoding = getattr(locale, "getencoding", None)
+    # cp936 on zh-CN, cp437 on en-US, etc.; unlike getpreferredencoding(False),
+    # getencoding() ignores Python UTF-8 Mode.
+    enc = get_encoding() if get_encoding else locale.getpreferredencoding(False)
+    return subprocess.run(
+        args,
+        capture_output=kwargs.get("capture_output", True),
+        encoding=enc,
+        errors="replace",
+        creationflags=kwargs.get("creationflags", 0x08000000),
+    )
 
 
 class AutoRewarderAPI:
@@ -754,14 +778,11 @@ class AutoRewarderAPI:
             # always meaningful (don't log "delete failed" for tasks
             # that were never there).
             try:
-                q = subprocess.run(
+                q = _run_schtasks(
                     ["schtasks", "/Query", "/TN", _AUTOSTART_TASK_NAME],
-                    capture_output=True,
-                    text=True,
-                    creationflags=0x08000000,
                 )
                 if q.returncode == 0:
-                    d = subprocess.run(
+                    d = _run_schtasks(
                         [
                             "schtasks",
                             "/Delete",
@@ -769,9 +790,6 @@ class AutoRewarderAPI:
                             _AUTOSTART_TASK_NAME,
                             "/F",
                         ],
-                        capture_output=True,
-                        text=True,
-                        creationflags=0x08000000,
                     )
                     if d.returncode == 0:
                         self.log("Removed legacy single-task scheduler")
@@ -947,7 +965,7 @@ class AutoRewarderAPI:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(xml_body.encode("utf-16"))
 
-            result = subprocess.run(
+            result = _run_schtasks(
                 [
                     "schtasks",
                     "/Create",
@@ -957,15 +975,17 @@ class AutoRewarderAPI:
                     xml_path,
                     "/F",
                 ],
-                capture_output=True,
-                text=True,
-                creationflags=0x08000000,
             )
             if result.returncode != 0:
+                err = (result.stderr or result.stdout or "").strip()
                 self.log(
-                    f"[ERROR] schtasks create failed for {label or account_id}: "
-                    f"{(result.stderr or result.stdout).strip()}"
+                    f"[ERROR] schtasks create failed for {label or account_id}: {err}"
                 )
+                if "denied" in err.lower() or "access" in err.lower() or "拒绝" in err:
+                    self.log(
+                        "[HINT] 权限不足，请尝试以管理员身份运行本程序一次以注册计划任务，"
+                        "之后即使普通用户运行也会正常触发。"
+                    )
                 return False
             self.log(
                 f"Scheduled task registered: '{label or account_id}' at {run_time}"
